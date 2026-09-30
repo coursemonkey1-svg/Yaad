@@ -1,8 +1,10 @@
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
 import '../data/db.dart';
 import '../main.dart';
 import '../models/transaction.dart';
+import 'capture_notify.dart';
 import 'sms_parse.dart';
 
 /// Bridges the native SMS/notification queues into Yaad (§6).
@@ -35,32 +37,37 @@ class CaptureService {
   }
 
   /// Drain native queues, parse, and import.
-  /// Returns (autoRecorded, needsReview) counts.
-  static Future<(int, int)> drainAndImport() async {
-    int recorded = 0, review = 0;
+  /// Returns (autoRecorded, needsReview) counts. Every captured
+  /// transaction also lands in the capture inbox and raises one of
+  /// Yaad's own phone notifications (§v1.3 autocap).
+  static Future<(int, int)> drainAndImport(
+      {BuildContext? promptContext}) async {
+    final captured = <CapturedTxn>[];
     final s = appState.settings;
     if (s.smsCapture) {
-      final r = await _drain('drainSmsQueue', TxnSource.sms);
-      recorded += r.$1;
-      review += r.$2;
+      captured.addAll(await _drain('drainSmsQueue', TxnSource.sms));
     }
     if (s.notificationCapture) {
-      final r = await _drain('drainNotifQueue', TxnSource.notification);
-      recorded += r.$1;
-      review += r.$2;
+      captured.addAll(await _drain('drainNotifQueue', TxnSource.notification));
     }
-    if (recorded + review > 0) appState.refresh();
+    final recorded = captured.where((c) => !c.needsReview).length;
+    final review = captured.length - recorded;
+    if (captured.isNotEmpty) {
+      appState.refresh();
+      await CaptureNotify.handleCaptured(captured,
+          promptContext: promptContext);
+    }
     return (recorded, review);
   }
 
-  static Future<(int, int)> _drain(
+  static Future<List<CapturedTxn>> _drain(
       String method, TxnSource source) async {
-    int recorded = 0, review = 0;
+    final out = <CapturedTxn>[];
     List<dynamic> items;
     try {
       items = await _ch.invokeMethod<List<dynamic>>(method) ?? [];
     } on PlatformException {
-      return (0, 0);
+      return out;
     }
     for (final item in items) {
       if (item is! Map) continue;
@@ -85,7 +92,7 @@ class CaptureService {
 
       final needsReview =
           alert.confidence == AlertConfidence.medium;
-      await YaadDb.insertTxn(YaadTransaction(
+      final txn = YaadTransaction(
         amount: alert.amount!,
         currency: appState.settings.currency,
         dateTime: date,
@@ -101,13 +108,10 @@ class CaptureService {
         status: needsReview
             ? TxnStatus.needsReview
             : TxnStatus.confirmed,
-      ));
-      if (needsReview) {
-        review++;
-      } else {
-        recorded++;
-      }
+      );
+      await YaadDb.insertTxn(txn);
+      out.add((txn: txn, needsReview: needsReview));
     }
-    return (recorded, review);
+    return out;
   }
 }

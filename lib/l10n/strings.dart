@@ -425,6 +425,24 @@ class Strings {
     'tourStepOf': 'Step {i} of {n}',
     'tourReplay': 'Take the tour',
     'tourReplaySub': 'A quick walkthrough of the app',
+    // Auto-capture inbox + Yaad's own notifications (§v1.3 autocap)
+    'inboxTitle': 'Inbox',
+    'inboxEmpty':
+        'Nothing here yet. When Yaad spots a bank alert, it lands here.',
+    'captureRecorded': 'Recorded',
+    'captureBankAlert': 'Bank alert',
+    'captureNotifTitle': 'Recorded {amount}',
+    'captureNotifTitleReview': 'Check this: {amount}',
+    'captureNotifBody': '{merchant} — tap to add details',
+    'captureNotifBodyNoMerchant': 'Bank alert — tap to add details',
+    'captureNotifRationale':
+        'Yaad can tell you the moment it records a bank alert.',
+    'captureNotifAllow': 'Allow',
+    'captureNotifDenied':
+        'Notifications are off — new captures still land in your inbox.',
+    'captureNotifSettingsBody':
+        'Notifications are off for Yaad. Turn them on in Settings to hear about auto-captured bank alerts.',
+    'captureTxnGone': 'That transaction was deleted.',
   };
 
   static const _ur = <String, String>{
@@ -834,6 +852,24 @@ class Strings {
     'tourStepOf': 'مرحلہ {i} از {n}',
     'tourReplay': 'ٹور دیکھیں',
     'tourReplaySub': 'ایپ کا مختصر تعارفی دورہ',
+    // Auto-capture inbox + Yaad's own notifications (§v1.3 autocap)
+    'inboxTitle': 'ان باکس',
+    'inboxEmpty':
+        'ابھی یہاں کچھ نہیں۔ جب یاد کو بینک الرٹ ملے گا تو وہ یہیں آئے گا۔',
+    'captureRecorded': 'درج ہو گیا',
+    'captureBankAlert': 'بینک الرٹ',
+    'captureNotifTitle': '{amount} درج ہو گیا',
+    'captureNotifTitleReview': 'اسے دیکھیں: {amount}',
+    'captureNotifBody': '{merchant} — تفصیلات شامل کرنے کے لیے ٹیپ کریں',
+    'captureNotifBodyNoMerchant': 'بینک الرٹ — تفصیلات کے لیے ٹیپ کریں',
+    'captureNotifRationale':
+        'یاد بینک الرٹ درج کرتے ہی آپ کو بتا سکتا ہے۔',
+    'captureNotifAllow': 'اجازت دیں',
+    'captureNotifDenied':
+        'اطلاعات بند ہیں — نئی خودکار ٹرانزیکشنز پھر بھی ان باکس میں آئیں گی۔',
+    'captureNotifSettingsBody':
+        'یاد کے لیے اطلاعات بند ہیں۔ خودکار بینک الرٹس کی خبر کے لیے انہیں سیٹنگز میں آن کریں۔',
+    'captureTxnGone': 'یہ ٹرانزیکشن حذف کر دی گئی تھی۔',
   };
 
   /// Localised 3-letter month abbreviation for summary/review titles.
