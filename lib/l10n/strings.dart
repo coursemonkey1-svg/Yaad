@@ -425,6 +425,14 @@ class Strings {
     'tourStepOf': 'Step {i} of {n}',
     'tourReplay': 'Take the tour',
     'tourReplaySub': 'A quick walkthrough of the app',
+    // App lock
+    'lockUnlockYaad': 'Unlock Yaad',
+    'lockUnlockButton': 'Unlock',
+    'lockTryAgain': 'Try again',
+    'lockAuthFailed':
+        "Couldn't show the unlock screen — make sure your phone has a screen lock (PIN, pattern or fingerprint) set, then try again.",
+    'lockNotSupported':
+        "This phone can't use app lock — it has no screen lock. Set a screen lock in your phone's settings, then try again.",
   };
 
   static const _ur = <String, String>{
@@ -834,6 +842,14 @@ class Strings {
     'tourStepOf': 'مرحلہ {i} از {n}',
     'tourReplay': 'ٹور دیکھیں',
     'tourReplaySub': 'ایپ کا مختصر تعارفی دورہ',
+    // App lock
+    'lockUnlockYaad': 'یاد ان لاک کریں',
+    'lockUnlockButton': 'ان لاک کریں',
+    'lockTryAgain': 'دوبارہ کوشش کریں',
+    'lockAuthFailed':
+        'ان لاک اسکرین نہیں کھل سکی — پہلے اپنے فون میں اسکرین لاک (PIN، پیٹرن یا فنگر پرنٹ) لگائیں، پھر دوبارہ کوشش کریں۔',
+    'lockNotSupported':
+        'یہ فون ایپ لاک استعمال نہیں کر سکتا — اس میں اسکرین لاک نہیں ہے۔ فون کی ترتیبات میں اسکرین لاک لگائیں، پھر دوبارہ کوشش کریں۔',
   };
 
   /// Localised 3-letter month abbreviation for summary/review titles.
