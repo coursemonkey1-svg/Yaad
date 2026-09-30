@@ -1,6 +1,7 @@
 name: Build Yaad
 
-# Free CI: every push builds a debug APK and a release App Bundle.
+# Free CI: every push builds a debug APK and a release App Bundle,
+# then publishes both as a public GitHub Release for one-tap download.
 # No paid services, no self-hosted runners — GitHub Actions free tier.
 on:
   push:
@@ -10,6 +11,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -24,6 +27,11 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Ensure Android SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Analyze
         run: flutter analyze
@@ -45,3 +53,13 @@ jobs:
         with:
           name: yaad-release-aab
           path: build/app/outputs/bundle/release/app-release.aab
+
+      - name: Publish release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Yaad build ${{ github.run_number }}
+          files: |
+            build/app/outputs/flutter-apk/app-debug.apk
+            build/app/outputs/bundle/release/app-release.aab
