@@ -29,9 +29,13 @@ jobs:
         run: flutter pub get
 
       - name: Ensure Android SDK packages
+        continue-on-error: true
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(command -v sdkmanager || true)"; fi
+          if [ -z "$SDKMANAGER" ]; then echo "sdkmanager not found, skipping"; exit 0; fi
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" || true
 
       - name: Analyze
         run: flutter analyze
