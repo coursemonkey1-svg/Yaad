@@ -35,7 +35,7 @@ jobs:
           if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(command -v sdkmanager || true)"; fi
           if [ -z "$SDKMANAGER" ]; then echo "sdkmanager not found, skipping"; exit 0; fi
           yes | "$SDKMANAGER" --licenses > /dev/null || true
-          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973" "ndk;28.2.13676358" || true
 
       - name: Analyze
         run: flutter analyze
