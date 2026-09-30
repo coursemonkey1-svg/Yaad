@@ -39,9 +39,28 @@ class GuidedTour {
   static bool shouldShow(AppSettings s) =>
       s.onboardingDone && !s.tourSeen;
 
+  /// The future of the currently-showing tour, if any. While this is
+  /// non-null a tour route is either being pushed or is on screen.
+  /// A second concurrent [show] returns this future instead of pushing
+  /// a duplicate route — this is what makes double-stacking impossible
+  /// even if the onboarding→main handoff fires the tour twice.
+  static Future<void>? _inFlight;
+
+  /// True while a tour page is actually mounted. Set synchronously in
+  /// [show] (so a push still in flight already counts), cleared when
+  /// the tour route pops/completes AND in [_TourPageState.dispose] —
+  /// so the guard can never stick, even if a Navigator is torn down
+  /// without the push future completing (dev hot-restart, widget-test
+  /// teardown, …).
+  static bool _showing = false;
+
   /// Pushes the tour as a transparent route. [onFinish] must persist
   /// `tourSeen`; it is called exactly once however the tour ends
   /// (Done, Skip, or system back).
+  ///
+  /// If a tour is already showing (push in flight or route on screen),
+  /// the in-flight future is returned and no second route is pushed.
+  /// The guard resets when the tour route pops/completes.
   static Future<void> show(
     BuildContext context, {
     required List<TourStep> steps,
@@ -49,20 +68,42 @@ class GuidedTour {
     ValueChanged<int>? onStep,
     required VoidCallback onFinish,
   }) {
-    return Navigator.of(context).push(PageRouteBuilder(
-      opaque: false,
-      barrierDismissible: false,
-      transitionDuration: const Duration(milliseconds: 220),
-      reverseTransitionDuration: const Duration(milliseconds: 150),
-      pageBuilder: (_, __, ___) => _TourPage(
-        steps: steps,
-        strings: strings,
-        onStep: onStep,
-        onDone: onFinish,
-      ),
-      transitionsBuilder: (_, anim, __, child) =>
-          FadeTransition(opacity: anim, child: child),
-    ));
+    final inFlight = _inFlight;
+    if (_showing && inFlight != null) return inFlight;
+    // Defensive: a stale future with no live page (its Navigator was
+    // torn down without the push future completing) must not block a
+    // fresh tour — fall through and show one.
+    _showing = true;
+    late final Future<void> future;
+    try {
+      future = Navigator.of(context).push(PageRouteBuilder(
+        opaque: false,
+        barrierDismissible: false,
+        transitionDuration: const Duration(milliseconds: 220),
+        reverseTransitionDuration: const Duration(milliseconds: 150),
+        pageBuilder: (_, __, ___) => _TourPage(
+          steps: steps,
+          strings: strings,
+          onStep: onStep,
+          onDone: onFinish,
+        ),
+        transitionsBuilder: (_, anim, __, child) =>
+            FadeTransition(opacity: anim, child: child),
+      ));
+    } catch (_) {
+      _showing = false;
+      rethrow;
+    }
+    _inFlight = future;
+    // Reset the guard no matter how the route completes (Done, Skip,
+    // or system back), so Settings → "Take the tour" keeps working.
+    // The identical() check keeps a late-completing stale future from
+    // clobbering a newer tour's guard.
+    future.whenComplete(() {
+      if (identical(_inFlight, future)) _inFlight = null;
+      _showing = false;
+    });
+    return future;
   }
 }
 
@@ -131,6 +172,15 @@ class _TourPageState extends State<_TourPage> {
     _finished = true;
     widget.onDone();
     if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  void dispose() {
+    // The page is gone from the tree (popped, or its Navigator was torn
+    // down): the tour is definitively not showing any more. Belt and
+    // suspenders with the push-future reset in GuidedTour.show.
+    GuidedTour._showing = false;
+    super.dispose();
   }
 
   @override

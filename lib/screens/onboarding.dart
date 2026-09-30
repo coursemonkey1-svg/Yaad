@@ -14,12 +14,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final _page = PageController();
   int _i = 0;
 
+  /// Debounce against double-tap / Skip+Get-started races: the handoff
+  /// writes settings then pushReplaces to Gate, and two in-flight
+  /// handoffs can stack two Gate/MainShell builds, each firing the
+  /// first-run tour. The pushReplacement stays load-bearing.
+  bool _doneInFlight = false;
+
   Future<void> _done() async {
-    await appState.update(
-        appState.settings.copyWith(onboardingDone: true));
-    if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const Gate()));
+    if (_doneInFlight) return;
+    _doneInFlight = true;
+    try {
+      await appState.update(
+          appState.settings.copyWith(onboardingDone: true));
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const Gate()));
+    } finally {
+      _doneInFlight = false;
+    }
   }
 
   @override
