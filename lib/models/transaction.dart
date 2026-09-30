@@ -2,14 +2,54 @@ import 'package:uuid/uuid.dart';
 
 const _uuid = Uuid();
 
-/// Direction of money movement.
+/// Direction of money movement (legacy display helper; [TxnKind] is
+/// authoritative since v1.1).
 enum TxnDirection { out, incoming, ownTransfer, adjustment }
+
+/// What kind of money event this is. Lending is NEVER spending:
+/// spending totals count only [spend], received totals only [receive].
+enum TxnKind {
+  spend,
+  receive,
+  lendOut,
+  borrowIn,
+  repayOut,
+  repayIn,
+  transfer, // between the user's own accounts — neither spend nor income
+}
+
+/// Plain-words label for a kind. Never "debit"/"credit"/"outflow".
+String kindLabel(TxnKind kind) {
+  switch (kind) {
+    case TxnKind.spend:
+      return 'Spent';
+    case TxnKind.receive:
+      return 'Received';
+    case TxnKind.lendOut:
+      return 'Lent';
+    case TxnKind.borrowIn:
+      return 'Borrowed';
+    case TxnKind.repayOut:
+      return 'Paid back';
+    case TxnKind.repayIn:
+      return 'Paid back';
+    case TxnKind.transfer:
+      return 'Moved';
+  }
+}
 
 /// Lifecycle status of a transaction record.
 enum TxnStatus { confirmed, needsReview, recurring, disputed, excluded }
 
 /// Where the transaction came from.
-enum TxnSource { share, ocr, statementImport, manual, notification }
+enum TxnSource {
+  share,
+  ocr,
+  statementImport,
+  manual,
+  notification,
+  sms,
+}
 
 /// A single money event, enriched with the user's own context.
 class YaadTransaction {
@@ -18,6 +58,7 @@ class YaadTransaction {
   final String currency; // e.g. "PKR"
   final DateTime dateTime;
   final TxnDirection direction;
+  final TxnKind kind;
   final String rawMerchant; // exactly what the bank / receipt said
   final String? aliasId; // link to MerchantAlias
   final String purpose; // groceries, food, ...
@@ -38,6 +79,7 @@ class YaadTransaction {
     this.currency = 'PKR',
     required this.dateTime,
     this.direction = TxnDirection.out,
+    TxnKind? kind,
     this.rawMerchant = '',
     this.aliasId,
     this.purpose = 'uncategorized',
@@ -52,14 +94,55 @@ class YaadTransaction {
     DateTime? createdAt,
     DateTime? updatedAt,
   })  : id = id ?? _uuid.v4(),
+        kind = kind ?? _kindFromDirection(direction),
         createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now();
+
+  static TxnKind _kindFromDirection(TxnDirection d) {
+    switch (d) {
+      case TxnDirection.out:
+        return TxnKind.spend;
+      case TxnDirection.incoming:
+        return TxnKind.receive;
+      case TxnDirection.ownTransfer:
+        return TxnKind.transfer;
+      case TxnDirection.adjustment:
+        return TxnKind.spend;
+    }
+  }
+
+  /// Direction derived from kind (for legacy consumers).
+  TxnDirection get derivedDirection {
+    switch (kind) {
+      case TxnKind.spend:
+      case TxnKind.lendOut:
+      case TxnKind.repayOut:
+        return TxnDirection.out;
+      case TxnKind.receive:
+      case TxnKind.borrowIn:
+      case TxnKind.repayIn:
+        return TxnDirection.incoming;
+      case TxnKind.transfer:
+        return TxnDirection.ownTransfer;
+    }
+  }
+
+  /// True when this transaction counts as spending.
+  bool get isSpending => kind == TxnKind.spend;
+
+  /// True when this is a lending/udhaar movement (never spending).
+  bool get isLending =>
+      kind == TxnKind.lendOut ||
+      kind == TxnKind.borrowIn ||
+      kind == TxnKind.repayOut ||
+      kind == TxnKind.repayIn;
 
   YaadTransaction copyWith({
     double? amount,
     String? currency,
     DateTime? dateTime,
     TxnDirection? direction,
+    TxnKind? kind,
     String? rawMerchant,
     String? aliasId,
     String? purpose,
@@ -78,6 +161,7 @@ class YaadTransaction {
       currency: currency ?? this.currency,
       dateTime: dateTime ?? this.dateTime,
       direction: direction ?? this.direction,
+      kind: kind ?? this.kind,
       rawMerchant: rawMerchant ?? this.rawMerchant,
       aliasId: aliasId ?? this.aliasId,
       purpose: purpose ?? this.purpose,
@@ -100,6 +184,7 @@ class YaadTransaction {
         'currency': currency,
         'dateTime': dateTime.millisecondsSinceEpoch,
         'direction': direction.name,
+        'kind': kind.name,
         'rawMerchant': rawMerchant,
         'aliasId': aliasId,
         'purpose': purpose,
@@ -115,27 +200,70 @@ class YaadTransaction {
         'updatedAt': updatedAt.millisecondsSinceEpoch,
       };
 
-  factory YaadTransaction.fromMap(Map<String, Object?> m) => YaadTransaction(
-        id: m['id'] as String,
-        amount: (m['amount'] as num?)?.toDouble() ?? 0,
-        currency: m['currency'] as String? ?? 'PKR',
-        dateTime:
-            DateTime.fromMillisecondsSinceEpoch(m['dateTime'] as int? ?? 0),
-        direction: TxnDirection.values.byName(m['direction'] as String? ?? 'out'),
-        rawMerchant: m['rawMerchant'] as String? ?? '',
-        aliasId: m['aliasId'] as String?,
-        purpose: m['purpose'] as String? ?? 'uncategorized',
-        note: m['note'] as String? ?? '',
-        tags: ((m['tags'] as String?) ?? '').split('|').where((t) => t.isNotEmpty).toList(),
-        receiptPath: m['receiptPath'] as String?,
-        bankReference: m['bankReference'] as String?,
-        source: TxnSource.values.byName(m['source'] as String? ?? 'manual'),
-        status: TxnStatus.values.byName(m['status'] as String? ?? 'confirmed'),
-        personId: m['personId'] as String?,
-        linkedLendingId: m['linkedLendingId'] as String?,
-        createdAt: DateTime.fromMillisecondsSinceEpoch(
-            m['createdAt'] as int? ?? DateTime.now().millisecondsSinceEpoch),
-        updatedAt: DateTime.fromMillisecondsSinceEpoch(
-            m['updatedAt'] as int? ?? DateTime.now().millisecondsSinceEpoch),
-      );
+  factory YaadTransaction.fromMap(Map<String, Object?> m) {
+    final direction =
+        TxnDirection.values.byName(m['direction'] as String? ?? 'out');
+    TxnKind kind;
+    final kindRaw = m['kind'] as String?;
+    if (kindRaw != null) {
+      kind = TxnKind.values.byName(kindRaw);
+    } else {
+      // v1.0 rows: derive from purpose + direction.
+      kind = _migrateKind(
+          m['purpose'] as String? ?? 'uncategorized', direction);
+    }
+    return YaadTransaction(
+      id: m['id'] as String,
+      amount: (m['amount'] as num?)?.toDouble() ?? 0,
+      currency: m['currency'] as String? ?? 'PKR',
+      dateTime:
+          DateTime.fromMillisecondsSinceEpoch(m['dateTime'] as int? ?? 0),
+      direction: direction,
+      kind: kind,
+      rawMerchant: m['rawMerchant'] as String? ?? '',
+      aliasId: m['aliasId'] as String?,
+      purpose: m['purpose'] as String? ?? 'uncategorized',
+      note: m['note'] as String? ?? '',
+      tags: ((m['tags'] as String?) ?? '')
+          .split('|')
+          .where((t) => t.isNotEmpty)
+          .toList(),
+      receiptPath: m['receiptPath'] as String?,
+      bankReference: m['bankReference'] as String?,
+      source: TxnSource.values.byName(m['source'] as String? ?? 'manual'),
+      status: TxnStatus.values.byName(m['status'] as String? ?? 'confirmed'),
+      personId: m['personId'] as String?,
+      linkedLendingId: m['linkedLendingId'] as String?,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(
+          m['createdAt'] as int? ?? DateTime.now().millisecondsSinceEpoch),
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(
+          m['updatedAt'] as int? ?? DateTime.now().millisecondsSinceEpoch),
+    );
+  }
+
+  /// v1.0 → v1.1 migration mapping (also used by the DB onUpgrade).
+  static TxnKind _migrateKind(String purpose, TxnDirection direction) {
+    switch (purpose) {
+      case 'loan':
+        return direction == TxnDirection.out
+            ? TxnKind.lendOut
+            : TxnKind.borrowIn;
+      case 'repaymentIn':
+        return direction == TxnDirection.out
+            ? TxnKind.repayOut
+            : TxnKind.repayIn;
+      case 'gift':
+        return direction == TxnDirection.out
+            ? TxnKind.spend
+            : TxnKind.receive;
+      default:
+        return _kindFromDirection(direction);
+    }
+  }
+
+  /// Maps a v1.0 row for the SQL migration (same rules as [_migrateKind]).
+  static String migrateKindName(String purpose, String directionName) {
+    final direction = TxnDirection.values.byName(directionName);
+    return _migrateKind(purpose, direction).name;
+  }
 }

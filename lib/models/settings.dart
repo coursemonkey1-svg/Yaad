@@ -11,6 +11,12 @@ class AppSettings {
   final String defaultBank; // "meezan" or "other" — tunes OCR/import templates
   final bool smartSuggestions; // suggest purpose from history (labelled)
   final bool onboardingDone;
+  final bool smsCapture; // opt-in bank SMS parsing (off by default)
+  final bool notificationCapture; // opt-in bank notification capture (off)
+  final bool billingEnabled; // Play Billing switch (off until retention proves)
+  final bool proUnlocked; // one-time yaad_pro purchase
+  final bool appLockGrandfathered; // v1.0 users keep free app lock
+  final String accentTheme; // "teal" free; others are Pro
 
   const AppSettings({
     this.currency = 'PKR',
@@ -23,6 +29,12 @@ class AppSettings {
     this.defaultBank = 'meezan',
     this.smartSuggestions = true,
     this.onboardingDone = false,
+    this.smsCapture = false,
+    this.notificationCapture = false,
+    this.billingEnabled = false,
+    this.proUnlocked = false,
+    this.appLockGrandfathered = false,
+    this.accentTheme = 'teal',
   });
 
   AppSettings copyWith({
@@ -36,6 +48,12 @@ class AppSettings {
     String? defaultBank,
     bool? smartSuggestions,
     bool? onboardingDone,
+    bool? smsCapture,
+    bool? notificationCapture,
+    bool? billingEnabled,
+    bool? proUnlocked,
+    bool? appLockGrandfathered,
+    String? accentTheme,
   }) =>
       AppSettings(
         currency: currency ?? this.currency,
@@ -48,6 +66,13 @@ class AppSettings {
         defaultBank: defaultBank ?? this.defaultBank,
         smartSuggestions: smartSuggestions ?? this.smartSuggestions,
         onboardingDone: onboardingDone ?? this.onboardingDone,
+        smsCapture: smsCapture ?? this.smsCapture,
+        notificationCapture: notificationCapture ?? this.notificationCapture,
+        billingEnabled: billingEnabled ?? this.billingEnabled,
+        proUnlocked: proUnlocked ?? this.proUnlocked,
+        appLockGrandfathered:
+            appLockGrandfathered ?? this.appLockGrandfathered,
+        accentTheme: accentTheme ?? this.accentTheme,
       );
 
   Map<String, Object?> toMap() => {
@@ -61,6 +86,12 @@ class AppSettings {
         'defaultBank': defaultBank,
         'smartSuggestions': smartSuggestions,
         'onboardingDone': onboardingDone,
+        'smsCapture': smsCapture,
+        'notificationCapture': notificationCapture,
+        'billingEnabled': billingEnabled,
+        'proUnlocked': proUnlocked,
+        'appLockGrandfathered': appLockGrandfathered,
+        'accentTheme': accentTheme,
       };
 
   factory AppSettings.fromMap(Map<String, Object?> m) => AppSettings(
@@ -74,5 +105,11 @@ class AppSettings {
         defaultBank: m['defaultBank'] as String? ?? 'meezan',
         smartSuggestions: m['smartSuggestions'] as bool? ?? true,
         onboardingDone: m['onboardingDone'] as bool? ?? false,
+        smsCapture: m['smsCapture'] as bool? ?? false,
+        notificationCapture: m['notificationCapture'] as bool? ?? false,
+        billingEnabled: m['billingEnabled'] as bool? ?? false,
+        proUnlocked: m['proUnlocked'] as bool? ?? false,
+        appLockGrandfathered: m['appLockGrandfathered'] as bool? ?? false,
+        accentTheme: m['accentTheme'] as String? ?? 'teal',
       );
 }

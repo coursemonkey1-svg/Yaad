@@ -10,7 +10,7 @@ import '../models/alias.dart';
 /// no account, no server, no sync. Free forever.
 class YaadDb {
   static const _name = 'yaad.db';
-  static const _version = 1;
+  static const _version = 2;
   static Database? _db;
 
   static Future<Database> get db async {
@@ -21,8 +21,35 @@ class YaadDb {
       p.join(dir, _name),
       version: _version,
       onCreate: _create,
+      onUpgrade: _upgrade,
     );
     return _db!;
+  }
+
+  /// v1 → v2: add the `kind` column and backfill it from
+  /// purpose + direction (see [YaadTransaction.migrateKindName]).
+  /// Lending rows become lendOut/borrowIn/repayOut/repayIn so they
+  /// are never counted as spending again.
+  static Future<void> _upgrade(
+      Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE transactions ADD COLUMN kind TEXT');
+      await db.execute('''
+        UPDATE transactions SET kind =
+          CASE
+            WHEN purpose = 'loan' AND direction = 'out' THEN 'lendOut'
+            WHEN purpose = 'loan' THEN 'borrowIn'
+            WHEN purpose = 'repaymentIn' AND direction = 'out' THEN 'repayOut'
+            WHEN purpose = 'repaymentIn' THEN 'repayIn'
+            WHEN purpose = 'gift' AND direction = 'out' THEN 'spend'
+            WHEN purpose = 'gift' THEN 'receive'
+            WHEN direction = 'out' THEN 'spend'
+            WHEN direction = 'incoming' THEN 'receive'
+            WHEN direction = 'ownTransfer' THEN 'transfer'
+            ELSE 'spend'
+          END
+      ''');
+    }
   }
 
   static Future<void> _create(Database db, int version) async {
@@ -33,6 +60,7 @@ class YaadDb {
         currency TEXT NOT NULL,
         dateTime INTEGER NOT NULL,
         direction TEXT NOT NULL,
+        kind TEXT,
         rawMerchant TEXT NOT NULL,
         aliasId TEXT,
         purpose TEXT NOT NULL,
@@ -149,6 +177,7 @@ class YaadDb {
     String? status,
     String? query,
     String? purpose,
+    TxnKind? kind,
     String? personId,
     int? fromMs,
     int? toMs,
@@ -163,6 +192,10 @@ class YaadDb {
     if (purpose != null) {
       where.add('purpose = ?');
       args.add(purpose);
+    }
+    if (kind != null) {
+      where.add('kind = ?');
+      args.add(kind.name);
     }
     if (personId != null) {
       where.add('personId = ?');
@@ -232,12 +265,20 @@ class YaadDb {
     return (rows.first['c'] as int?) ?? 0;
   }
 
-  static Future<double> sumOut(int fromMs, int toMs) async {
+  /// Money spent: ONLY kind = 'spend'. Lending is never spending.
+  static Future<double> sumSpent(int fromMs, int toMs) =>
+      sumByKind(TxnKind.spend, fromMs, toMs);
+
+  /// Money received: ONLY kind = 'receive'.
+  static Future<double> sumReceived(int fromMs, int toMs) =>
+      sumByKind(TxnKind.receive, fromMs, toMs);
+
+  static Future<double> sumByKind(TxnKind kind, int fromMs, int toMs) async {
     final d = await db;
     final rows = await d.rawQuery(
-        "SELECT SUM(amount) s FROM transactions WHERE direction = 'out' "
+        "SELECT SUM(amount) s FROM transactions WHERE kind = ? "
         "AND status != 'excluded' AND dateTime BETWEEN ? AND ?",
-        [fromMs, toMs]);
+        [kind.name, fromMs, toMs]);
     return ((rows.first['s'] as num?) ?? 0).toDouble();
   }
 
@@ -246,7 +287,7 @@ class YaadDb {
     final d = await db;
     return d.rawQuery(
         "SELECT purpose, SUM(amount) total, COUNT(*) n FROM transactions "
-        "WHERE direction = 'out' AND status != 'excluded' "
+        "WHERE kind = 'spend' AND status != 'excluded' "
         "AND dateTime BETWEEN ? AND ? GROUP BY purpose ORDER BY total DESC",
         [fromMs, toMs]);
   }
