@@ -18,7 +18,11 @@ import 'pro.dart';
 /// Settings: make Yaad yours. Defaults are Pakistan/PKR;
 /// everything is adjustable. All data stays on this phone.
 class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
+  /// When provided (from the main shell), shows a "Take the tour" row
+  /// that replays the first-run guided tour on demand.
+  final VoidCallback? onTakeTour;
+
+  const SettingsScreen({super.key, this.onTakeTour});
 
   /// Curated timezone list: Pakistan-first, then common expat / travel zones.
   static const _timezones = [
@@ -249,6 +253,14 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ],
               _section(t.get('about')),
+              if (onTakeTour != null)
+                ListTile(
+                  leading: const Icon(Icons.tour_outlined),
+                  title: Text(t.get('tourReplay')),
+                  subtitle: Text(t.get('tourReplaySub')),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: onTakeTour,
+                ),
               ListTile(
                 leading: const Icon(Icons.privacy_tip_outlined),
                 title: Text(t.get('privacy')),
