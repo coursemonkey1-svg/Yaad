@@ -1,0 +1,47 @@
+name: Build Yaad
+
+# Free CI: every push builds a debug APK and a release App Bundle.
+# No paid services, no self-hosted runners — GitHub Actions free tier.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Build debug APK (for direct install / testing)
+        run: flutter build apk --debug
+
+      - name: Build release App Bundle (for Play Store)
+        run: flutter build appbundle --release
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: yaad-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Upload release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: yaad-release-aab
+          path: build/app/outputs/bundle/release/app-release.aab

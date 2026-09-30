@@ -1,0 +1,51 @@
+name: yaad
+description: "Yaad — never forget what your money was for. A free, private, on-device personal finance companion."
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Local database (on-device, free, no backend)
+  sqflite: ^2.3.3+1
+  path: ^1.9.0
+
+  # On-device OCR (free, no cloud, no API keys)
+  google_mlkit_text_recognition: ^0.13.1
+
+  # Receive shared receipts from other apps (Meezan share sheet, screenshots)
+  receive_sharing_intent: ^1.8.1
+
+  # Speech-to-text dictation for notes (free, on-device where supported)
+  speech_to_text: ^7.0.0
+
+  # Statement import (CSV / Excel / text) — free
+  csv: ^6.0.0
+  excel: ^4.0.6
+
+  # Formatting, settings, files
+  intl: ^0.19.0
+  shared_preferences: ^2.2.3
+  path_provider: ^2.1.4
+  file_picker: ^8.1.2
+  share_plus: ^10.1.2
+  # IANA time-zone aware date boundaries (on-device database, free)
+  timezone: ^0.11.1
+
+  # App lock (biometric / PIN via device)
+  local_auth: ^2.1.7
+
+  # Ids
+  uuid: ^4.4.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
