@@ -425,6 +425,46 @@ class Strings {
     'tourStepOf': 'Step {i} of {n}',
     'tourReplay': 'Take the tour',
     'tourReplaySub': 'A quick walkthrough of the app',
+    // App lock
+    'lockUnlockYaad': 'Unlock Yaad',
+    'lockUnlockButton': 'Unlock',
+    'lockTryAgain': 'Try again',
+    'lockAuthFailed':
+        "Couldn't show the unlock screen — make sure your phone has a screen lock (PIN, pattern or fingerprint) set, then try again.",
+    'lockNotSupported':
+        "This phone can't use app lock — it has no screen lock. Set a screen lock in your phone's settings, then try again.",
+    // Activity view toggle
+    'viewDetailed': 'Detailed',
+    'viewCompact': 'Compact',
+    'sourceBankAlert': 'Bank alert',
+    'sourceManual': 'Manual',
+    // Voice notes (v1.3)
+    'voiceRecord': 'Record voice note',
+    'voiceStop': 'Stop',
+    'voiceRecordingHint': 'Speak now — your words are written below.',
+    'voiceNoTranscript':
+        "Couldn't write down your words — your recording is saved.",
+    'voicePlay': 'Play voice note',
+    'voiceStopPlaying': 'Stop playback',
+    'voiceDiscard': 'Remove recording',
+    // Auto-capture inbox + Yaad's own notifications
+    'inboxTitle': 'Inbox',
+    'inboxEmpty':
+        'Nothing here yet. When Yaad spots a bank alert, it lands here.',
+    'captureRecorded': 'Recorded',
+    'captureBankAlert': 'Bank alert',
+    'captureNotifTitle': 'Recorded {amount}',
+    'captureNotifTitleReview': 'Check this: {amount}',
+    'captureNotifBody': '{merchant} — tap to add details',
+    'captureNotifBodyNoMerchant': 'Bank alert — tap to add details',
+    'captureNotifRationale':
+        'Yaad can tell you the moment it records a bank alert.',
+    'captureNotifAllow': 'Allow',
+    'captureNotifDenied':
+        'Notifications are off — new captures still land in your inbox.',
+    'captureNotifSettingsBody':
+        'Notifications are off for Yaad. Turn them on in Settings to hear about auto-captured bank alerts.',
+    'captureTxnGone': 'That transaction was deleted.',
   };
 
   static const _ur = <String, String>{
@@ -834,6 +874,46 @@ class Strings {
     'tourStepOf': 'مرحلہ {i} از {n}',
     'tourReplay': 'ٹور دیکھیں',
     'tourReplaySub': 'ایپ کا مختصر تعارفی دورہ',
+    // App lock
+    'lockUnlockYaad': 'یاد ان لاک کریں',
+    'lockUnlockButton': 'ان لاک کریں',
+    'lockTryAgain': 'دوبارہ کوشش کریں',
+    'lockAuthFailed':
+        'ان لاک اسکرین نہیں کھل سکی — پہلے اپنے فون میں اسکرین لاک (PIN، پیٹرن یا فنگر پرنٹ) لگائیں، پھر دوبارہ کوشش کریں۔',
+    'lockNotSupported':
+        'یہ فون ایپ لاک استعمال نہیں کر سکتا — اس میں اسکرین لاک نہیں ہے۔ فون کی ترتیبات میں اسکرین لاک لگائیں، پھر دوبارہ کوشش کریں۔',
+    // Activity view toggle
+    'viewDetailed': 'تفصیلی',
+    'viewCompact': 'مختصر',
+    'sourceBankAlert': 'بینک الرٹ',
+    'sourceManual': 'دستی',
+    // Voice notes (v1.3)
+    'voiceRecord': 'آواز کا نوٹ ریکارڈ کریں',
+    'voiceStop': 'روکیں',
+    'voiceRecordingHint': 'اب بولیں — آپ کی بات نیچے لکھی جا رہی ہے۔',
+    'voiceNoTranscript':
+        'آپ کی بات لکھی نہ جا سکی — آپ کی ریکارڈنگ محفوظ ہے۔',
+    'voicePlay': 'آواز کا نوٹ چلائیں',
+    'voiceStopPlaying': 'پلے بیک روکیں',
+    'voiceDiscard': 'ریکارڈنگ ہٹائیں',
+    // Auto-capture inbox + Yaad's own notifications
+    'inboxTitle': 'ان باکس',
+    'inboxEmpty':
+        'ابھی یہاں کچھ نہیں۔ جب یاد کو بینک الرٹ ملے گا تو وہ یہیں آئے گا۔',
+    'captureRecorded': 'درج ہو گیا',
+    'captureBankAlert': 'بینک الرٹ',
+    'captureNotifTitle': '{amount} درج ہو گیا',
+    'captureNotifTitleReview': 'اسے دیکھیں: {amount}',
+    'captureNotifBody': '{merchant} — تفصیلات شامل کرنے کے لیے ٹیپ کریں',
+    'captureNotifBodyNoMerchant': 'بینک الرٹ — تفصیلات کے لیے ٹیپ کریں',
+    'captureNotifRationale':
+        'یاد بینک الرٹ درج کرتے ہی آپ کو بتا سکتا ہے۔',
+    'captureNotifAllow': 'اجازت دیں',
+    'captureNotifDenied':
+        'اطلاعات بند ہیں — نئی خودکار ٹرانزیکشنز پھر بھی ان باکس میں آئیں گی۔',
+    'captureNotifSettingsBody':
+        'یاد کے لیے اطلاعات بند ہیں۔ خودکار بینک الرٹس کی خبر کے لیے انہیں سیٹنگز میں آن کریں۔',
+    'captureTxnGone': 'یہ ٹرانزیکشن حذف کر دی گئی تھی۔',
   };
 
   /// Localised 3-letter month abbreviation for summary/review titles.

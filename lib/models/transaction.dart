@@ -65,6 +65,8 @@ class YaadTransaction {
   final String note;
   final List<String> tags;
   final String? receiptPath; // local image path
+  final String? audioPath; // local .m4a voice recording, if any
+  final String? voiceNote; // speech-to-text transcript — separate from `note`
   final String? bankReference;
   final TxnSource source;
   final TxnStatus status;
@@ -86,6 +88,8 @@ class YaadTransaction {
     this.note = '',
     this.tags = const [],
     this.receiptPath,
+    this.audioPath,
+    this.voiceNote,
     this.bankReference,
     this.source = TxnSource.manual,
     this.status = TxnStatus.confirmed,
@@ -137,6 +141,10 @@ class YaadTransaction {
       kind == TxnKind.repayOut ||
       kind == TxnKind.repayIn;
 
+  /// [audioPath]/[voiceNote] use a keep-sentinel so callers can
+  /// explicitly clear them to null (plain `?? this.x` can't express that).
+  static const _keep = Object();
+
   YaadTransaction copyWith({
     double? amount,
     String? currency,
@@ -149,6 +157,8 @@ class YaadTransaction {
     String? note,
     List<String>? tags,
     String? receiptPath,
+    Object? audioPath = _keep,
+    Object? voiceNote = _keep,
     String? bankReference,
     TxnSource? source,
     TxnStatus? status,
@@ -168,6 +178,10 @@ class YaadTransaction {
       note: note ?? this.note,
       tags: tags ?? this.tags,
       receiptPath: receiptPath ?? this.receiptPath,
+      audioPath:
+          identical(audioPath, _keep) ? this.audioPath : audioPath as String?,
+      voiceNote:
+          identical(voiceNote, _keep) ? this.voiceNote : voiceNote as String?,
       bankReference: bankReference ?? this.bankReference,
       source: source ?? this.source,
       status: status ?? this.status,
@@ -191,6 +205,8 @@ class YaadTransaction {
         'note': note,
         'tags': tags.join('|'),
         'receiptPath': receiptPath,
+        'audioPath': audioPath,
+        'voiceNote': voiceNote,
         'bankReference': bankReference,
         'source': source.name,
         'status': status.name,
@@ -229,6 +245,8 @@ class YaadTransaction {
           .where((t) => t.isNotEmpty)
           .toList(),
       receiptPath: m['receiptPath'] as String?,
+      audioPath: m['audioPath'] as String?,
+      voiceNote: m['voiceNote'] as String?,
       bankReference: m['bankReference'] as String?,
       source: TxnSource.values.byName(m['source'] as String? ?? 'manual'),
       status: TxnStatus.values.byName(m['status'] as String? ?? 'confirmed'),

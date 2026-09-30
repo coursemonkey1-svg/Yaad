@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 
@@ -12,7 +14,7 @@ import '../models/purposes.dart';
 /// no account, no server, no sync. Free forever.
 class YaadDb {
   static const _name = 'yaad.db';
-  static const _version = 3;
+  static const _version = 4;
   static Database? _db;
 
   static Future<Database> get db async {
@@ -33,6 +35,8 @@ class YaadDb {
   /// Lending rows become lendOut/borrowIn/repayOut/repayIn so they
   /// are never counted as spending again.
   /// v2 → v3: add the `custom_purposes` table (user-created purposes).
+  /// v3 → v4: add nullable `audioPath` + `voiceNote` columns for voice
+  /// notes (v1.3). Existing rows keep working — both columns are NULL.
   static Future<void> _upgrade(
       Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
@@ -61,6 +65,10 @@ class YaadDb {
           createdAt INTEGER NOT NULL
         )''');
     }
+    if (oldVersion < 4) {
+      await db.execute('ALTER TABLE transactions ADD COLUMN audioPath TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN voiceNote TEXT');
+    }
   }
 
   static Future<void> _create(Database db, int version) async {
@@ -78,6 +86,8 @@ class YaadDb {
         note TEXT NOT NULL,
         tags TEXT NOT NULL,
         receiptPath TEXT,
+        audioPath TEXT,
+        voiceNote TEXT,
         bankReference TEXT,
         source TEXT NOT NULL,
         status TEXT NOT NULL,
@@ -185,8 +195,22 @@ class YaadDb {
     await _audit(d, 'transaction', t.id, 'updated', detail);
   }
 
+  /// Deleting a transaction also deletes its voice recording file,
+  /// if one was saved — no orphaned audio.
   static Future<void> deleteTxn(String id) async {
     final d = await db;
+    final rows = await d.query('transactions',
+        where: 'id = ?', whereArgs: [id], limit: 1);
+    if (rows.isNotEmpty) {
+      final audio = rows.first['audioPath'] as String?;
+      if (audio != null && audio.isNotEmpty) {
+        try {
+          await File(audio).delete();
+        } catch (_) {
+          // Missing already is fine.
+        }
+      }
+    }
     await d.delete('transactions', where: 'id = ?', whereArgs: [id]);
     await _audit(d, 'transaction', id, 'deleted', '');
   }

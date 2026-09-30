@@ -1,8 +1,12 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../data/db.dart';
@@ -43,6 +47,8 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
   final _aliasCtrl = TextEditingController();
   final _suggest = SuggestionService();
   final _speech = stt.SpeechToText();
+  final _recorder = AudioRecorder();
+  AudioPlayer? _player;
 
   String _purpose = 'uncategorized';
   String? _suggestedPurpose;
@@ -52,7 +58,17 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
   late TxnKind _kind;
   DateTime _date = DateTime.now();
   bool _saving = false;
-  bool _listening = false;
+  // Voice note state: recording + speech-to-text run in parallel.
+  // `_voiceText` (transcript) is a dedicated field — NEVER mixed into
+  // the typed note (`_noteCtrl`).
+  bool _recording = false;
+  Timer? _recTimer;
+  int _recSecs = 0;
+  String _voiceText = '';
+  String _partial = '';
+  String? _savedAudioPath; // recording that belongs to the edited txn
+  String? _pendingAudioPath; // recording made in this session, not yet saved
+  bool _playing = false;
   // Receipt fields the parser wasn't sure about (< 0.7 confidence).
   List<String> _checkFields = [];
 
@@ -85,6 +101,8 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       _noteCtrl.text = e.note;
       _purpose = e.purpose;
       _date = e.dateTime;
+      _voiceText = e.voiceNote ?? '';
+      _savedAudioPath = e.audioPath;
       _loadAlias(e.rawMerchant);
     } else if (r != null) {
       final who = r.recipient ?? r.merchant;
@@ -214,16 +232,35 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     _merchantCtrl.dispose();
     _noteCtrl.dispose();
     _aliasCtrl.dispose();
+    _recTimer?.cancel();
+    _speech.cancel();
+    _player?.dispose();
+    if (_recording) {
+      // Left mid-recording: stop it and throw the file away.
+      final path = _pendingAudioPath;
+      unawaited(_recorder
+          .stop()
+          .then((_) => _deleteFile(path))
+          .catchError((_) => null));
+    } else {
+      // An unsaved recording never leaves junk behind.
+      final pending = _pendingAudioPath;
+      if (pending != null && pending != _savedAudioPath) {
+        unawaited(_deleteFile(pending));
+      }
+    }
+    _recorder.dispose();
     super.dispose();
   }
 
-  /// Voice note: one-line explanation, request at tap-time, guide to
-  /// settings on denial (§4 mic fix — manifest already declares it).
+  /// Voice note: two taps — mic to start, stop to finish. Records real
+  /// audio (.m4a saved in the app folder) AND transcribes in parallel.
+  /// The transcript lands in its own dedicated field, never in the
+  /// typed note. If transcription fails, the recording is still kept.
   Future<void> _toggleMic() async {
     final s = Strings(appState.settings.language);
-    if (_listening) {
-      await _speech.stop();
-      if (mounted) setState(() => _listening = false);
+    if (_recording) {
+      await _stopRecording();
       return;
     }
     final status = await Permission.microphone.request();
@@ -254,19 +291,237 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       }
       return;
     }
-    final available = await _speech.initialize();
-    if (!available || !mounted) return;
-    setState(() => _listening = true);
-    await _speech.listen(
-      onResult: (res) {
-        _noteCtrl.text = (_noteCtrl.text.isEmpty ? '' : '${_noteCtrl.text} ') +
-            res.recognizedWords;
-      },
-      listenOptions: stt.SpeechListenOptions(
-        localeId: appState.settings.language == 'ur' ? 'ur_PK' : 'en_PK',
+    // Discard any earlier in-session recording before starting fresh.
+    await _deleteFile(_pendingAudioPath);
+    _pendingAudioPath = null;
+    _voiceText = '';
+    _partial = '';
+
+    String path;
+    try {
+      final dir =
+          Directory('${(await getApplicationDocumentsDirectory()).path}/voice_notes');
+      if (!await dir.exists()) await dir.create(recursive: true);
+      path =
+          '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      await _recorder.start(
+        const RecordConfig(encoder: AudioEncoder.aacLc),
+        path: path,
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(s.get('micDenied'))));
+      }
+      return;
+    }
+
+    // Transcription runs in parallel with recording. When the speech
+    // engine can't start (no network, unsupported device), the
+    // recording is still kept — the field says so plainly.
+    try {
+      final available = await _speech.initialize();
+      if (available && mounted) {
+        await _speech.listen(
+          onResult: (res) {
+            if (!mounted || !_recording) return;
+            setState(() {
+              if (res.finalResult) {
+                final words = res.recognizedWords.trim();
+                if (words.isNotEmpty) {
+                  _voiceText =
+                      _voiceText.isEmpty ? words : '$_voiceText $words';
+                }
+                _partial = '';
+              } else {
+                _partial = res.recognizedWords;
+              }
+            });
+          },
+          listenOptions: stt.SpeechListenOptions(
+            localeId:
+                appState.settings.language == 'ur' ? 'ur_PK' : 'en_PK',
+          ),
+        );
+      }
+    } catch (_) {
+      // Transcription unavailable — the recording is still kept.
+    }
+
+    if (!mounted) {
+      await _recorder.stop().catchError((_) => null);
+      return;
+    }
+    setState(() {
+      _recording = true;
+      _recSecs = 0;
+      _pendingAudioPath = path;
+    });
+    _recTimer?.cancel();
+    _recTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _recording) setState(() => _recSecs++);
+    });
+  }
+
+  /// Deletes a local file, quietly ignoring a missing one.
+  Future<void> _deleteFile(String? path) async {
+    if (path == null || path.isEmpty) return;
+    try {
+      await File(path).delete();
+    } catch (_) {}
+  }
+
+  Future<void> _stopRecording() async {
+    _recTimer?.cancel();
+    _recTimer = null;
+    try {
+      await _recorder.stop();
+    } catch (_) {}
+    try {
+      await _speech.stop();
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _recording = false;
+      _partial = '';
+    });
+  }
+
+  /// The recording currently attached to this transaction (saved or new).
+  String? get _activeAudioPath => _pendingAudioPath ?? _savedAudioPath;
+
+  /// Plays / stops the attached recording.
+  Future<void> _togglePlay() async {
+    final path = _activeAudioPath;
+    if (path == null) return;
+    final player = _player ??= AudioPlayer();
+    if (_playing) {
+      await player.stop();
+      if (mounted) setState(() => _playing = false);
+      return;
+    }
+    player.onPlayerComplete.first.then((_) {
+      if (mounted) setState(() => _playing = false);
+    });
+    try {
+      await player.play(DeviceFileSource(path));
+      if (mounted) setState(() => _playing = true);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(Strings(appState.settings.language)
+                .get('voiceNoTranscript'))));
+      }
+    }
+  }
+
+  /// Removes the attached recording (and its transcript). On edit this
+  /// deletes the previously saved file too — nothing is orphaned.
+  Future<void> _discardVoice() async {
+    if (_playing) {
+      await _player?.stop();
+      _playing = false;
+    }
+    await _deleteFile(_pendingAudioPath);
+    await _deleteFile(_savedAudioPath);
+    if (mounted) {
+      setState(() {
+        _pendingAudioPath = null;
+        _savedAudioPath = null;
+        _voiceText = '';
+        _partial = '';
+      });
+    }
+  }
+
+  String _fmtSecs(int v) =>
+      '${(v ~/ 60).toString().padLeft(2, '0')}:${(v % 60).toString().padLeft(2, '0')}';
+
+  /// Recording in progress: red indicator, live timer, live transcript
+  /// preview, Stop button.
+  Widget _buildRecordingCard(Strings s) {
+    final live =
+        '${_voiceText}${_partial.isEmpty ? '' : ' $_partial'}'.trim();
+    return Container(
+      padding: const EdgeInsets.all(Gap.x1 + 4),
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.error),
+        borderRadius: BorderRadius.circular(Radius.chip),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.fiber_manual_record,
+                  color: Colors.red, size: 14),
+              const SizedBox(width: 8),
+              Text(_fmtSecs(_recSecs),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, color: Colors.red)),
+              const SizedBox(width: 8),
+              Text(s.get('voiceNote'),
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              const Spacer(),
+              FilledButton.tonal(
+                onPressed: _toggleMic,
+                child: Text(s.get('voiceStop')),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            live.isEmpty ? s.get('voiceRecordingHint') : live,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ],
       ),
     );
-    if (mounted) setState(() => _listening = false);
+  }
+
+  /// Voice note attached: read-only transcript + playback + remove.
+  Widget _buildVoiceCard(Strings s) {
+    return Container(
+      padding: const EdgeInsets.all(Gap.x1 + 4),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(Radius.chip),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(s.get('voiceNote'),
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              const Spacer(),
+              if (_activeAudioPath != null)
+                IconButton(
+                  tooltip:
+                      _playing ? s.get('voiceStopPlaying') : s.get('voicePlay'),
+                  icon: Icon(_playing
+                      ? Icons.stop_circle_outlined
+                      : Icons.play_circle_outline),
+                  onPressed: _togglePlay,
+                ),
+              IconButton(
+                tooltip: s.get('voiceDiscard'),
+                icon: const Icon(Icons.delete_outline),
+                onPressed: _discardVoice,
+              ),
+            ],
+          ),
+          if (_voiceText.isNotEmpty)
+            Text(_voiceText,
+                style: Theme.of(context).textTheme.bodyMedium)
+          else
+            Text(s.get('voiceNoTranscript'),
+                style: TextStyle(
+                    fontStyle: FontStyle.italic,
+                    color: Theme.of(context).colorScheme.secondary)),
+        ],
+      ),
+    );
   }
 
   Future<void> _save({required bool needsReview}) async {
@@ -287,7 +542,22 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       aliasId = (await YaadDb.aliasFor(merchant))?.id;
     }
 
+    // Voice note: keep the new recording, drop the replaced one.
+    // Transcript and typed note stay in their own separate fields.
     final e = widget.editing;
+    String? audioPath = _pendingAudioPath ?? _savedAudioPath;
+    if (e != null &&
+        _pendingAudioPath != null &&
+        e.audioPath != null &&
+        e.audioPath != _pendingAudioPath) {
+      await _deleteFile(e.audioPath);
+    }
+    if (audioPath != null && !await File(audioPath).exists()) {
+      audioPath = null;
+    }
+    final voiceNote =
+        _voiceText.trim().isEmpty ? null : _voiceText.trim();
+
     if (e != null) {
       await YaadDb.updateTxn(e.copyWith(
         amount: amount,
@@ -299,6 +569,8 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         aliasId: aliasId ?? e.aliasId,
         purpose: _purpose,
         note: _noteCtrl.text.trim(),
+        audioPath: audioPath,
+        voiceNote: voiceNote,
         status: needsReview ? TxnStatus.needsReview : TxnStatus.confirmed,
       ));
     } else {
@@ -330,6 +602,8 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         aliasId: aliasId,
         purpose: _purpose,
         note: _noteCtrl.text.trim(),
+        audioPath: audioPath,
+        voiceNote: voiceNote,
         receiptPath: r?.imagePath,
         bankReference: r?.reference,
         source: r != null
@@ -520,14 +794,24 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
           NoteField(
             controller: _noteCtrl,
             micButton: IconButton(
-              tooltip: s.get('micTitle'),
-              icon: Icon(_listening ? Icons.mic : Icons.mic_none_outlined,
-                  color: _listening
+              tooltip: _recording ? s.get('voiceStop') : s.get('voiceRecord'),
+              icon: Icon(_recording ? Icons.mic : Icons.mic_none_outlined,
+                  color: _recording
                       ? Theme.of(context).colorScheme.error
                       : null),
               onPressed: _toggleMic,
             ),
           ),
+          // Voice note: its own read-only field, separate from the typed
+          // note above. Appears while recording or when a recording is
+          // attached (new or from the edited transaction).
+          if (_recording) ...[
+            const SizedBox(height: Gap.x1),
+            _buildRecordingCard(s),
+          ] else if (_activeAudioPath != null || _voiceText.isNotEmpty) ...[
+            const SizedBox(height: Gap.x1),
+            _buildVoiceCard(s),
+          ],
           const SizedBox(height: Gap.x3),
           FilledButton(
             onPressed: _saving ? null : () => _save(needsReview: false),

@@ -4,6 +4,7 @@ import '../data/db.dart';
 import '../l10n/strings.dart';
 import '../main.dart';
 import '../models/custom_purpose.dart';
+import '../models/settings.dart';
 import '../models/transaction.dart';
 import '../theme.dart';
 import '../widgets/filter_sheet.dart';
@@ -110,6 +111,8 @@ class _TimelineScreenState extends State<TimelineScreen> {
               child: Row(
                 children: [
                   _filtersButton(s),
+                  const Spacer(),
+                  _viewToggle(s),
                 ],
               ),
             ),
@@ -136,7 +139,11 @@ class _TimelineScreenState extends State<TimelineScreen> {
                   }
                   return ListView.builder(
                     itemCount: items.length,
-                    itemBuilder: (_, i) => TxnRow(txn: items[i]),
+                    itemBuilder: (_, i) => TxnRow(
+                      txn: items[i],
+                      compact: appState.settings.activityView ==
+                          AppSettings.viewCompact,
+                    ),
                   );
                 },
               ),
@@ -156,6 +163,33 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final n = _activeCount;
     if (n == 0) return button;
     return Badge(label: Text('$n'), child: button);
+  }
+
+  /// Detailed vs Compact list density. Persisted in [AppSettings].
+  Widget _viewToggle(Strings s) {
+    return SegmentedButton<String>(
+      style: SegmentedButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        textStyle: const TextStyle(fontSize: 12),
+      ),
+      showSelectedIcon: false,
+      segments: [
+        ButtonSegment(
+          value: AppSettings.viewDetailed,
+          label: Text(s.get('viewDetailed')),
+          icon: const Icon(Icons.view_agenda_outlined, size: 16),
+        ),
+        ButtonSegment(
+          value: AppSettings.viewCompact,
+          label: Text(s.get('viewCompact')),
+          icon: const Icon(Icons.view_list_outlined, size: 16),
+        ),
+      ],
+      selected: {appState.settings.activityView},
+      onSelectionChanged: (sel) => appState.update(
+        appState.settings.copyWith(activityView: sel.first),
+      ),
+    );
   }
 
   /// Never a blank screen: the empty state says what to do next.

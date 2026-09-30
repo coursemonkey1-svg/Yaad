@@ -6,7 +6,6 @@ import '../main.dart';
 import '../models/lending.dart';
 import '../models/transaction.dart';
 import '../models/purposes.dart';
-import '../models/alias.dart';
 import '../theme.dart';
 import '../widgets/atoms.dart';
 import 'review.dart';
@@ -344,71 +343,239 @@ class _ReviewCard extends StatelessWidget {
   }
 }
 
-/// One transaction row, reused across Home / Activity / Review.
+/// One transaction card, reused across Home / Activity / Review.
 /// Plain words first: kind label + amount, never bare −/+ signs.
+///
+/// [compact] renders the glanceable single-row density (icon + title +
+/// amount); otherwise the detailed card shows purpose, date/time, note
+/// snippet, person/merchant and a source badge.
 class TxnRow extends StatelessWidget {
   final YaadTransaction txn;
   final VoidCallback? onTap;
-  const TxnRow({super.key, required this.txn, this.onTap});
+  final bool compact;
+  const TxnRow(
+      {super.key, required this.txn, this.onTap, this.compact = false});
 
   @override
   Widget build(BuildContext context) {
-    return _TxnRow(txn: txn, onTap: onTap);
+    return _TxnRow(txn: txn, onTap: onTap, compact: compact);
   }
+}
+
+/// Friendly-name lookups for a row (merchant alias + person).
+class _TxnRowNames {
+  final String? alias;
+  final String? personName;
+  const _TxnRowNames(this.alias, this.personName);
 }
 
 class _TxnRow extends StatelessWidget {
   final YaadTransaction txn;
   final VoidCallback? onTap;
-  const _TxnRow({required this.txn, this.onTap});
+  final bool compact;
+  const _TxnRow(
+      {required this.txn, this.onTap, this.compact = false});
+
+  Future<_TxnRowNames> _loadNames() async {
+    final alias = await YaadDb.aliasFor(txn.rawMerchant);
+    String? personName;
+    if (txn.personId != null) {
+      personName = (await YaadDb.personById(txn.personId!))?.name;
+    }
+    return _TxnRowNames(
+      (alias != null && alias.alias.isNotEmpty) ? alias.alias : null,
+      (personName != null && personName.isNotEmpty) ? personName : null,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return FutureBuilder<MerchantAlias?>(
-      future: YaadDb.aliasFor(txn.rawMerchant),
+    final s = Strings(appState.settings.language);
+    final tint = _colorFor(context, txn.kind);
+    return FutureBuilder<_TxnRowNames>(
+      future: _loadNames(),
       builder: (context, snap) {
-        final alias = snap.data?.alias;
-        final title = (alias != null && alias.isNotEmpty)
-            ? alias
-            : (txn.rawMerchant.isEmpty
-                ? kindLabel(txn.kind)
-                : txn.rawMerchant);
-        final subtitle =
-            '${kindLabel(txn.kind)} · ${purposeLabel(txn.purpose)} · ${appState.formatDate(txn.dateTime)}';
-        return ListTile(
-          onTap: onTap ??
-              () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => ConfirmScreen(editing: txn))),
-          leading: CircleAvatar(
-            backgroundColor:
-                cs.surfaceContainerHighest.withValues(alpha: 0.7),
-            child: Icon(_iconFor(txn.kind, txn.purpose),
-                color: _colorFor(context, txn.kind)),
-          ),
-          title: Text(title,
-              maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: Text(subtitle,
-              maxLines: 1, overflow: TextOverflow.ellipsis),
-          trailing: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                appState.money(txn.amount),
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                  color: _colorFor(context, txn.kind),
-                ),
+        final names = snap.data;
+        final title = names?.alias ??
+            (txn.rawMerchant.isEmpty ? kindLabel(txn.kind) : txn.rawMerchant);
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: InkWell(
+            onTap: onTap ??
+                () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => ConfirmScreen(editing: txn))),
+            borderRadius: BorderRadius.circular(Radius.chip),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: cs.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(Radius.chip),
+                border: Border.all(
+                    color: cs.outlineVariant.withValues(alpha: 0.45)),
               ),
-              if (txn.status == TxnStatus.needsReview)
-                Icon(Icons.pending_outlined,
-                    size: 14, color: cs.onSurfaceVariant),
-            ],
+              child: Row(
+                crossAxisAlignment: compact
+                    ? CrossAxisAlignment.center
+                    : CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: tint.withValues(alpha: 0.14),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(_iconFor(txn.kind, txn.purpose),
+                        color: tint, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: compact
+                        ? _compactBody(context, s, title)
+                        : _detailedBody(context, s, title, names, tint),
+                  ),
+                  const SizedBox(width: 8),
+                  _amountColumn(context, s, tint),
+                ],
+              ),
+            ),
           ),
         );
       },
+    );
+  }
+
+  /// Glanceable single row: title + amount only.
+  Widget _compactBody(BuildContext context, Strings s, String title) {
+    return Text(title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+            fontWeight: FontWeight.w600, fontSize: 15, height: 1.3));
+  }
+
+  /// The full card: purpose, date/time, note snippet, person, source badge.
+  Widget _detailedBody(BuildContext context, Strings s, String title,
+      _TxnRowNames? names, Color tint) {
+    final cs = Theme.of(context).colorScheme;
+    final needsReview = txn.status == TxnStatus.needsReview;
+    final timeOfDay =
+        MaterialLocalizations.of(context).formatTimeOfDay(
+            TimeOfDay.fromDateTime(txn.dateTime));
+    final meta = StringBuffer(appState.formatDate(txn.dateTime))
+      ..write(' · ')
+      ..write(timeOfDay);
+    if (names?.personName != null) {
+      meta
+        ..write(' · ')
+        ..write(names!.personName);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+                fontWeight: FontWeight.w600, fontSize: 15, height: 1.3)),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            _chip(context, kindLabel(txn.kind), tint),
+            _chip(context, purposeLabel(txn.purpose),
+                cs.onSurfaceVariant),
+            if (needsReview)
+              _chip(context, s.get('needsReview'), cs.error,
+                  icon: Icons.visibility_outlined),
+            _sourceChip(context, s),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(meta.toString(),
+            style: TextStyle(
+                fontSize: 12, color: cs.onSurfaceVariant, height: 1.35)),
+        if (txn.note.trim().isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(txn.note.trim(),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontSize: 13,
+                  color: cs.onSurfaceVariant,
+                  fontStyle: FontStyle.italic,
+                  height: 1.35)),
+        ],
+      ],
+    );
+  }
+
+  /// Bank-captured vs added-by-hand, shown as a small badge.
+  Widget _sourceChip(BuildContext context, Strings s) {
+    final bankCaptured = txn.source != TxnSource.manual;
+    final cs = Theme.of(context).colorScheme;
+    return _chip(
+      context,
+      bankCaptured ? s.get('sourceBankAlert') : s.get('sourceManual'),
+      bankCaptured ? cs.tertiary : cs.onSurfaceVariant,
+      icon: bankCaptured
+          ? Icons.account_balance_outlined
+          : Icons.edit_outlined,
+    );
+  }
+
+  Widget _chip(BuildContext context, String label, Color tint,
+      {IconData? icon}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: tint.withValues(alpha: 0.13),
+        borderRadius: BorderRadius.circular(Radius.chip),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 12, color: tint),
+            const SizedBox(width: 4),
+          ],
+          Text(label,
+              style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: tint,
+                  height: 1.2)),
+        ],
+      ),
+    );
+  }
+
+  Widget _amountColumn(BuildContext context, Strings s, Color tint) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          appState.money(txn.amount),
+          textAlign: TextAlign.end,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            fontFeatures: const [FontFeature.tabularFigures()],
+            color: tint,
+          ),
+        ),
+        if (compact && txn.status == TxnStatus.needsReview)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Icon(Icons.pending_outlined,
+                size: 14, color: cs.onSurfaceVariant),
+          ),
+      ],
     );
   }
 

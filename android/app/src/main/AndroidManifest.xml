@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- SMS transaction alerts: only used when the user opts in (§6). -->
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <!-- Yaad's own notifications about auto-captured bank alerts (§v1.3):
+         runtime permission on Android 13+, asked once at first capture. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:label="Yaad"
