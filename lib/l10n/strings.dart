@@ -425,6 +425,15 @@ class Strings {
     'tourStepOf': 'Step {i} of {n}',
     'tourReplay': 'Take the tour',
     'tourReplaySub': 'A quick walkthrough of the app',
+    // Voice notes (v1.3)
+    'voiceRecord': 'Record voice note',
+    'voiceStop': 'Stop',
+    'voiceRecordingHint': 'Speak now — your words are written below.',
+    'voiceNoTranscript':
+        "Couldn't write down your words — your recording is saved.",
+    'voicePlay': 'Play voice note',
+    'voiceStopPlaying': 'Stop playback',
+    'voiceDiscard': 'Remove recording',
   };
 
   static const _ur = <String, String>{
@@ -834,6 +843,15 @@ class Strings {
     'tourStepOf': 'مرحلہ {i} از {n}',
     'tourReplay': 'ٹور دیکھیں',
     'tourReplaySub': 'ایپ کا مختصر تعارفی دورہ',
+    // Voice notes (v1.3)
+    'voiceRecord': 'آواز کا نوٹ ریکارڈ کریں',
+    'voiceStop': 'روکیں',
+    'voiceRecordingHint': 'اب بولیں — آپ کی بات نیچے لکھی جا رہی ہے۔',
+    'voiceNoTranscript':
+        'آپ کی بات لکھی نہ جا سکی — آپ کی ریکارڈنگ محفوظ ہے۔',
+    'voicePlay': 'آواز کا نوٹ چلائیں',
+    'voiceStopPlaying': 'پلے بیک روکیں',
+    'voiceDiscard': 'ریکارڈنگ ہٹائیں',
   };
 
   /// Localised 3-letter month abbreviation for summary/review titles.
