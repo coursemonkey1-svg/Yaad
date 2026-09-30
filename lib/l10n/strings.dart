@@ -328,6 +328,30 @@ class Strings {
         'Store unavailable right now. Please try again later.',
     'proFinePrint':
         'One-time purchase, yours forever. No subscription, no ads, your data never leaves this phone.',
+    // Guided tour
+    'tourAddTitle': 'Start here: Add',
+    'tourAddBody':
+        'Type the amount first, then pick what happened: spent, received, lent, or borrowed.',
+    'tourAddHint': 'Try it after the tour — it takes 10 seconds.',
+    'tourHomeTitle': 'Home: your month at a glance',
+    'tourHomeBody':
+        'What you spent, what came in, and who owes whom — all in one glance.',
+    'tourActivityTitle': 'Activity: everything you recorded',
+    'tourActivityBody':
+        'Every entry in one list. Search it whenever you forget what something was.',
+    'tourUdhaarTitle': 'Udhaar: money with people',
+    'tourUdhaarBody':
+        'Lent and borrowed, kept fully separate from your spending.',
+    'tourSettingsTitle': 'Settings: make it yours',
+    'tourSettingsBody':
+        'Language, backup, and more. You can replay this tour from here anytime.',
+    'tourSkip': 'Skip',
+    'tourNext': 'Next',
+    'tourBack': 'Back',
+    'tourDone': 'Done',
+    'tourStepOf': 'Step {i} of {n}',
+    'tourReplay': 'Take the tour',
+    'tourReplaySub': 'A quick walkthrough of the app',
   };
 
   static const _ur = <String, String>{
@@ -641,6 +665,30 @@ class Strings {
         'اسٹور ابھی دستیاب نہیں۔ براہ کرم بعد میں کوشش کریں۔',
     'proFinePrint':
         'ایک بار کی خریداری، ہمیشہ آپ کی۔ کوئی سبسکرپشن نہیں، کوئی اشتہار نہیں، آپ کا ڈیٹا اسی فون میں رہتا ہے۔',
+    // Guided tour
+    'tourAddTitle': 'یہاں سے شروع کریں',
+    'tourAddBody':
+        'پہلے رقم لکھیں، پھر بتائیں کیا ہوا: خرچ کیا، موصول ہوا، ادھار دیا یا ادھار لیا۔',
+    'tourAddHint': 'ٹور کے بعد خود آزمائیں — صرف دس سیکنڈ لگتے ہیں۔',
+    'tourHomeTitle': 'ہوم: مہینے بھر کا خلاصہ',
+    'tourHomeBody':
+        'کتنا خرچ ہوا، کتنا آیا، اور کس کے ذمے کتنا ہے — سب ایک نظر میں۔',
+    'tourActivityTitle': 'لین دین: آپ کا مکمل ریکارڈ',
+    'tourActivityBody':
+        'تمام اندراجات ایک فہرست میں۔ کچھ بھول جائیں تو یہاں تلاش کریں۔',
+    'tourUdhaarTitle': 'ادھار: لوگوں کے ساتھ حساب',
+    'tourUdhaarBody':
+        'دیا اور لیا ہوا ادھار — آپ کے خرچ سے بالکل الگ رکھا جاتا ہے۔',
+    'tourSettingsTitle': 'ترتیبات: اپنی مرضی سے',
+    'tourSettingsBody':
+        'زبان، بیک اپ اور مزید۔ یہ ٹور آپ یہاں سے کسی بھی وقت دوبارہ دیکھ سکتے ہیں۔',
+    'tourSkip': 'چھوڑیں',
+    'tourNext': 'آگے',
+    'tourBack': 'پیچھے',
+    'tourDone': 'ہو گیا',
+    'tourStepOf': 'مرحلہ {i} از {n}',
+    'tourReplay': 'ٹور دیکھیں',
+    'tourReplaySub': 'ایپ کا مختصر تعارفی دورہ',
   };
 
   /// Localised 3-letter month abbreviation for summary/review titles.

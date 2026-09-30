@@ -11,6 +11,7 @@ class AppSettings {
   final String defaultBank; // "meezan" or "other" — tunes OCR/import templates
   final bool smartSuggestions; // suggest purpose from history (labelled)
   final bool onboardingDone;
+  final bool tourSeen; // first-run guided tour completed or skipped
   final bool smsCapture; // opt-in bank SMS parsing (off by default)
   final bool notificationCapture; // opt-in bank notification capture (off)
   final bool billingEnabled; // Play Billing switch (off until retention proves)
@@ -29,6 +30,7 @@ class AppSettings {
     this.defaultBank = 'meezan',
     this.smartSuggestions = true,
     this.onboardingDone = false,
+    this.tourSeen = false,
     this.smsCapture = false,
     this.notificationCapture = false,
     this.billingEnabled = false,
@@ -48,6 +50,7 @@ class AppSettings {
     String? defaultBank,
     bool? smartSuggestions,
     bool? onboardingDone,
+    bool? tourSeen,
     bool? smsCapture,
     bool? notificationCapture,
     bool? billingEnabled,
@@ -66,6 +69,7 @@ class AppSettings {
         defaultBank: defaultBank ?? this.defaultBank,
         smartSuggestions: smartSuggestions ?? this.smartSuggestions,
         onboardingDone: onboardingDone ?? this.onboardingDone,
+        tourSeen: tourSeen ?? this.tourSeen,
         smsCapture: smsCapture ?? this.smsCapture,
         notificationCapture: notificationCapture ?? this.notificationCapture,
         billingEnabled: billingEnabled ?? this.billingEnabled,
@@ -86,6 +90,7 @@ class AppSettings {
         'defaultBank': defaultBank,
         'smartSuggestions': smartSuggestions,
         'onboardingDone': onboardingDone,
+        'tourSeen': tourSeen,
         'smsCapture': smsCapture,
         'notificationCapture': notificationCapture,
         'billingEnabled': billingEnabled,
@@ -105,6 +110,7 @@ class AppSettings {
         defaultBank: m['defaultBank'] as String? ?? 'meezan',
         smartSuggestions: m['smartSuggestions'] as bool? ?? true,
         onboardingDone: m['onboardingDone'] as bool? ?? false,
+        tourSeen: m['tourSeen'] as bool? ?? false,
         smsCapture: m['smsCapture'] as bool? ?? false,
         notificationCapture: m['notificationCapture'] as bool? ?? false,
         billingEnabled: m['billingEnabled'] as bool? ?? false,
