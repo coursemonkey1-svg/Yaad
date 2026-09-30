@@ -43,9 +43,7 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => ConfirmScreen(
         initialKind: kind,
-        initial: amount > 0
-            ? _AmountOnly(amount)
-            : null,
+        initial: amount > 0 ? _AmountOnly(amount) : null,
       ),
     ));
   }
@@ -77,86 +75,95 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
   Widget build(BuildContext context) {
     final s = Strings(appState.settings.language);
     final cs = Theme.of(context).colorScheme;
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-            Gap.x3, Gap.x1 + 4, Gap.x3, Gap.x4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                  color: cs.outlineVariant,
-                  borderRadius: BorderRadius.circular(2)),
-            ),
-            const SizedBox(height: Gap.x2),
-            // 1. Amount first — big, numeric, autofocused.
-            TextField(
-              controller: _amountCtrl,
-              autofocus: true,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
-              ],
-              style: const TextStyle(
-                  fontSize: 40, fontWeight: FontWeight.bold),
-              textAlign: TextAlign.center,
-              decoration: InputDecoration(
-                labelText: s.get('amount'),
-                prefixText: '${appState.settings.currency} ',
-                border: const OutlineInputBorder(),
-              ),
-              onChanged: (_) => setState(() {}),
-            ),
-            const SizedBox(height: Gap.x2),
-            // 2. Four plain intents.
-            GridView.count(
-              shrinkWrap: true,
-              crossAxisCount: 2,
-              mainAxisSpacing: Gap.x1 + 4,
-              crossAxisSpacing: Gap.x1 + 4,
-              childAspectRatio: 2.2,
-              physics: const NeverScrollableScrollPhysics(),
+    // Keyboard safety: the amount field autofocuses, so the keyboard is
+    // already up when this sheet opens. Lift the sheet by the keyboard
+    // height and let the content scroll, so the amount field, all four
+    // intent cards, and the scan button stay reachable on small screens.
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(Gap.x3, Gap.x1 + 4, Gap.x3, Gap.x4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                _IntentCard(
-                  icon: Icons.north_east,
-                  label: s.get('iSpent'),
-                  color: cs.error,
-                  onTap: _goSpent,
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                      color: cs.outlineVariant,
+                      borderRadius: BorderRadius.circular(2)),
                 ),
-                _IntentCard(
-                  icon: Icons.south_west,
-                  label: s.get('iReceived'),
-                  color: Colors.green,
-                  onTap: _goReceived,
+                const SizedBox(height: Gap.x2),
+                // 1. Amount first — big, numeric, autofocused.
+                TextField(
+                  controller: _amountCtrl,
+                  autofocus: true,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
+                  ],
+                  style: const TextStyle(
+                      fontSize: 40, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                  decoration: InputDecoration(
+                    labelText: s.get('amount'),
+                    prefixText: '${appState.settings.currency} ',
+                    border: const OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setState(() {}),
                 ),
-                _IntentCard(
-                  icon: Icons.handshake_outlined,
-                  label: s.get('iLent'),
-                  color: cs.primary,
-                  onTap: _goLent,
+                const SizedBox(height: Gap.x2),
+                // 2. Four plain intents.
+                GridView.count(
+                  shrinkWrap: true,
+                  crossAxisCount: 2,
+                  mainAxisSpacing: Gap.x1 + 4,
+                  crossAxisSpacing: Gap.x1 + 4,
+                  childAspectRatio: 2.2,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    _IntentCard(
+                      icon: Icons.north_east,
+                      label: s.get('iSpent'),
+                      color: cs.error,
+                      onTap: _goSpent,
+                    ),
+                    _IntentCard(
+                      icon: Icons.south_west,
+                      label: s.get('iReceived'),
+                      color: Colors.green,
+                      onTap: _goReceived,
+                    ),
+                    _IntentCard(
+                      icon: Icons.handshake_outlined,
+                      label: s.get('iLent'),
+                      color: cs.primary,
+                      onTap: _goLent,
+                    ),
+                    _IntentCard(
+                      icon: Icons.handshake_outlined,
+                      label: s.get('iBorrowed'),
+                      color: cs.secondary,
+                      onTap: _goBorrowed,
+                    ),
+                  ],
                 ),
-                _IntentCard(
-                  icon: Icons.handshake_outlined,
-                  label: s.get('iBorrowed'),
-                  color: cs.secondary,
-                  onTap: _goBorrowed,
+                const SizedBox(height: Gap.x2),
+                // 3. Scan receipt as the alternate path.
+                OutlinedButton.icon(
+                  onPressed: _scanReceipt,
+                  icon: const Icon(Icons.document_scanner_outlined),
+                  label: Text(s.get('scanReceipt')),
+                  style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48)),
                 ),
               ],
             ),
-            const SizedBox(height: Gap.x2),
-            // 3. Scan receipt as the alternate path.
-            OutlinedButton.icon(
-              onPressed: _scanReceipt,
-              icon: const Icon(Icons.document_scanner_outlined),
-              label: Text(s.get('scanReceipt')),
-              style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48)),
-            ),
-          ],
+          ),
         ),
       ),
     );
