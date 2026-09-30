@@ -14,6 +14,8 @@ class AppSettings {
   final bool tourSeen; // first-run guided tour completed or skipped
   final bool smsCapture; // opt-in bank SMS parsing (off by default)
   final bool notificationCapture; // opt-in bank notification capture (off)
+  final bool smsGuideSeen; // restricted-settings guide shown for SMS capture
+  final bool notifGuideSeen; // restricted-settings guide shown for notif cap.
   final bool billingEnabled; // Play Billing switch (off until retention proves)
   final bool proUnlocked; // one-time yaad_pro purchase
   final bool appLockGrandfathered; // v1.0 users keep free app lock
@@ -33,6 +35,8 @@ class AppSettings {
     this.tourSeen = false,
     this.smsCapture = false,
     this.notificationCapture = false,
+    this.smsGuideSeen = false,
+    this.notifGuideSeen = false,
     this.billingEnabled = false,
     this.proUnlocked = false,
     this.appLockGrandfathered = false,
@@ -53,6 +57,8 @@ class AppSettings {
     bool? tourSeen,
     bool? smsCapture,
     bool? notificationCapture,
+    bool? smsGuideSeen,
+    bool? notifGuideSeen,
     bool? billingEnabled,
     bool? proUnlocked,
     bool? appLockGrandfathered,
@@ -72,6 +78,8 @@ class AppSettings {
         tourSeen: tourSeen ?? this.tourSeen,
         smsCapture: smsCapture ?? this.smsCapture,
         notificationCapture: notificationCapture ?? this.notificationCapture,
+        smsGuideSeen: smsGuideSeen ?? this.smsGuideSeen,
+        notifGuideSeen: notifGuideSeen ?? this.notifGuideSeen,
         billingEnabled: billingEnabled ?? this.billingEnabled,
         proUnlocked: proUnlocked ?? this.proUnlocked,
         appLockGrandfathered:
@@ -93,6 +101,8 @@ class AppSettings {
         'tourSeen': tourSeen,
         'smsCapture': smsCapture,
         'notificationCapture': notificationCapture,
+        'smsGuideSeen': smsGuideSeen,
+        'notifGuideSeen': notifGuideSeen,
         'billingEnabled': billingEnabled,
         'proUnlocked': proUnlocked,
         'appLockGrandfathered': appLockGrandfathered,
@@ -113,6 +123,8 @@ class AppSettings {
         tourSeen: m['tourSeen'] as bool? ?? false,
         smsCapture: m['smsCapture'] as bool? ?? false,
         notificationCapture: m['notificationCapture'] as bool? ?? false,
+        smsGuideSeen: m['smsGuideSeen'] as bool? ?? false,
+        notifGuideSeen: m['notifGuideSeen'] as bool? ?? false,
         billingEnabled: m['billingEnabled'] as bool? ?? false,
         proUnlocked: m['proUnlocked'] as bool? ?? false,
         appLockGrandfathered: m['appLockGrandfathered'] as bool? ?? false,

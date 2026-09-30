@@ -580,6 +580,57 @@ class _CaptureSectionState extends State<_CaptureSection>
     }
   }
 
+  /// First-run guide for the restricted-settings wall on sideloaded
+  /// builds: the phone blocks SMS / notification capture until the user
+  /// allows restricted settings once on the app's system page. Shown once
+  /// per capture type, before the normal rationale / permission flow.
+  /// Returns true to continue turning the toggle on.
+  Future<bool> _showPermGuide({required bool forSms}) async {
+    final cur = appState.settings;
+    if (forSms ? cur.smsGuideSeen : cur.notifGuideSeen) return true;
+    final s = Strings(cur.language);
+    final open = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(s.get('permGuideTitle')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(s.get('permGuideBody')),
+            const SizedBox(height: Gap.x1),
+            Text('1. ${s.get('permGuideStep1')}'),
+            const SizedBox(height: Gap.x1 / 2),
+            Text('2. ${s.get('permGuideStep2')}'),
+            const SizedBox(height: Gap.x1 / 2),
+            Text('3. ${s.get('permGuideStep3')}'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(s.get('notNow')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(s.get('permGuideOpen')),
+          ),
+        ],
+      ),
+    );
+    // The guide shows once, however it was dismissed.
+    await appState.update(cur.copyWith(
+      smsGuideSeen: forSms || cur.smsGuideSeen,
+      notifGuideSeen: !forSms || cur.notifGuideSeen,
+    ));
+    if (open == true && mounted) {
+      // App-info page, where ⋮ → "Allow restricted settings" lives.
+      await openAppSettings();
+    }
+    // The toggle stays off; the user flips it again after allowing.
+    return false;
+  }
+
   Future<void> _toggleSms(bool on) async {
     final s = Strings(appState.settings.language);
     if (!on) {
@@ -588,6 +639,8 @@ class _CaptureSectionState extends State<_CaptureSection>
       await CaptureService.setSmsEnabled(false);
       return;
     }
+    // Restricted-settings guide on first enable (sideloaded builds).
+    if (!await _showPermGuide(forSms: true)) return;
     // Rationale first.
     final go = await showDialog<bool>(
       context: context,
@@ -627,6 +680,8 @@ class _CaptureSectionState extends State<_CaptureSection>
       await CaptureService.setNotificationEnabled(false);
       return;
     }
+    // Restricted-settings guide on first enable (sideloaded builds).
+    if (!await _showPermGuide(forSms: false)) return;
     final go = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(

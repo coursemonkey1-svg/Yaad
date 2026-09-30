@@ -92,6 +92,16 @@ class Strings {
     'notifOptInTitle': 'Capture bank notifications?',
     'notifOptInBody':
         'Yaad reads transaction notifications from your bank apps on this phone. Nothing leaves your phone. You can turn it off anytime in Settings.',
+    // Restricted-settings guide (sideloaded builds): the phone blocks these
+    // permissions until the user allows restricted settings once.
+    'permGuideTitle': 'One phone setting first',
+    'permGuideBody':
+        'Yaad was installed directly on this phone and is not on the Play Store yet, so your phone blocks this until you allow it once:',
+    'permGuideStep1': 'Tap "Open phone settings" below.',
+    'permGuideStep2':
+        'Tap ⋮ (top right) → "Allow restricted settings" and confirm.',
+    'permGuideStep3': 'Come back here and turn this on.',
+    'permGuideOpen': 'Open phone settings',
     // Udhaar
     'who': 'Who?',
     'howMuch': 'How much?',
@@ -437,6 +447,14 @@ class Strings {
     'notifOptInTitle': 'بینک نوٹیفکیشن لیں؟',
     'notifOptInBody':
         'یاد آپ کے بینک ایپس کے نوٹیفکیشن اسی فون پر پڑھے گی۔ کچھ بھی فون سے باہر نہیں جائے گا۔ ترتیبات میں کبھی بھی بند کر سکتے ہیں۔',
+    'permGuideTitle': 'پہلے فون کی ایک ترتیب',
+    'permGuideBody':
+        'یاد ایپ براہِ راست اس فون پر انسٹال کی گئی ہے اور ابھی پلے اسٹور پر نہیں ہے، اس لیے آپ کا فون یہ سہولت اس وقت تک روکے رکھتا ہے جب تک آپ ایک بار اجازت نہ دیں:',
+    'permGuideStep1': 'نیچے ”فون کی ترتیبات کھولیں“ پر ٹیپ کریں۔',
+    'permGuideStep2':
+        '⋮ (اوپر دائیں کونے میں) پر ٹیپ کریں، پھر ”Allow restricted settings“ پر ٹیپ کر کے تصدیق کریں۔',
+    'permGuideStep3': 'واپس یہاں آ کر اسے آن کریں۔',
+    'permGuideOpen': 'فون کی ترتیبات کھولیں',
     'who': 'کس کو؟',
     'howMuch': 'کتنی رقم؟',
     'reason': 'وجہ (اختیاری)',
