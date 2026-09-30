@@ -82,13 +82,20 @@ void main() {
         expect(find.text(label), findsOneWidget);
       }
 
-      // Each one can be scrolled into view above the keyboard.
-      final scrollable = find.byType(SingleChildScrollView);
-      for (final label in labels) {
-        await tester.scrollUntilVisible(find.text(label), 200,
-            scrollable: scrollable);
-        expect(find.text(label), findsOneWidget);
-      }
+      // Dragging the sheet up brings the last control fully on screen...
+      await tester.drag(
+          find.byType(SingleChildScrollView), const Offset(0, -1000));
+      await tester.pumpAndSettle();
+      final scanRect = tester.getRect(find.text('Scan receipt'));
+      expect(scanRect.top, greaterThanOrEqualTo(0));
+      expect(scanRect.bottom, lessThanOrEqualTo(600));
+
+      // ...and scrolling back down keeps the amount field reachable too.
+      await tester.drag(
+          find.byType(SingleChildScrollView), const Offset(0, 1000));
+      await tester.pumpAndSettle();
+      final amountRect = tester.getRect(find.byType(TextField));
+      expect(amountRect.top, greaterThanOrEqualTo(0));
     });
   });
 }
