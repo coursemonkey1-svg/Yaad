@@ -9,12 +9,14 @@ import '../data/db.dart';
 import '../l10n/strings.dart';
 import '../main.dart';
 import '../models/alias.dart';
+import '../models/custom_purpose.dart';
 import '../models/purposes.dart';
 import '../models/transaction.dart';
 import '../services/ocr.dart';
 import '../services/suggest.dart';
 import '../theme.dart';
 import '../widgets/note_field.dart';
+import '../widgets/purpose_dialogs.dart';
 import '../widgets/purpose_grid.dart';
 
 /// The confirmation card: amount / merchant / date prefilled from the
@@ -46,12 +48,25 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
   String? _suggestedPurpose;
   String? _suggestionReason;
   MerchantAlias? _aliasSuggestion;
+  List<CustomPurpose> _customs = [];
   late TxnKind _kind;
   DateTime _date = DateTime.now();
   bool _saving = false;
   bool _listening = false;
+  // Receipt fields the parser wasn't sure about (< 0.7 confidence).
+  List<String> _checkFields = [];
 
   bool get _isSpend => _kind == TxnKind.spend;
+
+  /// Picker list: the fixed bucket plus the user's own purposes on the
+  /// spend side. Custom purposes are spend-only.
+  List<Purpose> get _pickerPurposes {
+    final base = _isSpend ? kSpendPurposes : kReceiveSources;
+    if (!_isSpend) return base;
+    return [...base, for (final c in _customs) c.asPurpose];
+  }
+
+  Set<String> get _customIds => {for (final c in _customs) c.id};
 
   @override
   void initState() {
@@ -72,24 +87,103 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       _date = e.dateTime;
       _loadAlias(e.rawMerchant);
     } else if (r != null) {
+      final who = r.recipient ?? r.merchant;
       if (r.amount != null) {
         _amountCtrl.text = r.amount!.toStringAsFixed(
             r.amount!.truncateToDouble() == r.amount! ? 0 : 2);
       }
-      if (r.merchant != null) {
-        _merchantCtrl.text = r.merchant!;
-        _loadAlias(r.merchant!);
-        _loadSuggestion(r.merchant!);
+      if (who != null && who.isNotEmpty) {
+        _merchantCtrl.text = who;
+        _loadAlias(who);
+        _loadSuggestion(who);
       }
       if (r.date != null) _date = r.date!;
+      // Receipt context note: sender / reference / channel — only when
+      // the note is still empty, so a kept shared-text note is never
+      // overwritten.
+      if (_noteCtrl.text.isEmpty) {
+        final bits = <String>[
+          if (r.sender != null && r.sender!.isNotEmpty)
+            'From ${r.sender}',
+          if (r.reference != null && r.reference!.isNotEmpty)
+            'Ref ${r.reference}',
+          if (r.transactionTypeRaw != null &&
+              r.transactionTypeRaw!.isNotEmpty)
+            r.transactionTypeRaw!,
+        ];
+        if (bits.isNotEmpty) _noteCtrl.text = bits.join(' · ');
+      }
       // Never-silent share: nothing parsed → keep the shared text as
       // the note so nothing is lost (§1).
       if (r.amount == null &&
-          (r.merchant == null || r.merchant!.isEmpty) &&
+          (who == null || who.isEmpty) &&
+          _noteCtrl.text.isEmpty &&
           r.rawText.isNotEmpty) {
         _noteCtrl.text = r.rawText;
       }
+      // Subtle "check this" hint for low-confidence fields.
+      final conf = r.confidence;
+      _checkFields = [
+        if (r.amount != null && (conf['amount'] ?? 1) < 0.7) 'amount',
+        if (who != null && who.isNotEmpty && (conf['merchant'] ?? 1) < 0.7)
+          'merchant',
+        if (r.date != null && (conf['date'] ?? 1) < 0.7) 'date',
+      ];
     }
+    _loadCustoms();
+  }
+
+  Future<void> _loadCustoms() async {
+    final customs = await YaadDb.customPurposes();
+    if (!mounted) return;
+    setState(() => _customs = customs);
+  }
+
+  /// Creates a custom purpose from the "＋ New" tile and selects it.
+  Future<void> _addCustomPurpose() async {
+    final s = Strings(appState.settings.language);
+    final name = await promptCustomPurposeName(context, s);
+    if (name == null || name.isEmpty || !mounted) return;
+    if (await YaadDb.purposeLabelExists(name)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.get('purposeExists'))));
+      return;
+    }
+    final cp = await YaadDb.insertCustomPurpose(name);
+    if (!mounted) return;
+    setState(() {
+      _customs.add(cp);
+      _purpose = cp.id;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content:
+            Text(s.get('purposeAdded').replaceFirst('{name}', cp.label))));
+  }
+
+  /// Deletes a custom purpose (long-press). Its transactions move to
+  /// "Other" — never orphaned.
+  Future<void> _deleteCustomPurpose(String id) async {
+    final s = Strings(appState.settings.language);
+    String? label;
+    for (final c in _customs) {
+      if (c.id == id) {
+        label = c.label;
+        break;
+      }
+    }
+    if (label == null || !mounted) return;
+    final ok = await confirmDeleteCustomPurpose(context, s, label);
+    if (!ok || !mounted) return;
+    await YaadDb.deleteCustomPurpose(id);
+    if (!mounted) return;
+    setState(() {
+      _customs.removeWhere((c) => c.id == id);
+      if (_purpose == id) _purpose = 'uncategorized';
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+            s.get('purposeDeleted').replaceFirst('{name}', label))));
   }
 
   Future<void> _loadAlias(String raw) async {
@@ -350,16 +444,50 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
             ],
           ),
           const SizedBox(height: Gap.x1),
+          // Subtle "check this" hint for low-confidence receipt fields.
+          if (_checkFields.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline,
+                      size: 14,
+                      color: Theme.of(context).colorScheme.secondary),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      '${s.get('doubleCheck')}: '
+                      '${_checkFields.map((f) => s.get(f)).join(', ')}',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color:
+                              Theme.of(context).colorScheme.secondary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Text(_isSpend ? s.get('purpose') : s.get('source'),
               style: const TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: Gap.x1),
           PurposeGrid(
-            purposes: _isSpend ? kSpendPurposes : kReceiveSources,
+            purposes: _pickerPurposes,
             selected: _purpose,
             onSelect: (p) => setState(() => _purpose = p),
             suggested: _suggestedPurpose,
             suggestionReason: _suggestionReason,
+            customIds: _customIds,
+            onAddCustom: _isSpend ? _addCustomPurpose : null,
+            newTileLabel: '＋ ${s.get('newPurpose')}',
+            onDeleteCustom: _deleteCustomPurpose,
           ),
+          // Discoverability: long-press to delete is otherwise invisible.
+          if (_isSpend && _customs.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(s.get('longPressHint'),
+                  style: Theme.of(context).textTheme.bodySmall),
+            ),
           const SizedBox(height: Gap.x1 + 4),
           // Alias: your own recognizable name.
           TextField(

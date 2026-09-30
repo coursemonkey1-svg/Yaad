@@ -32,18 +32,28 @@ String _extract(List<int> bytes) {
 
   for (final obj in objRe.allMatches(raw)) {
     final objBody = obj.group(2)!;
+    // Image (logo) streams carry binary, not text — skip them outright:
+    // their bytes break the text readers below.
+    if (RegExp(r'/Subtype\s*/Image').hasMatch(objBody)) continue;
     final streamMatch = streamRe.firstMatch(objBody);
     if (streamMatch == null) continue;
     if (!objBody.contains('FlateDecode') &&
         !objBody.contains('Fl') /* short name */) {
       // Uncompressed content stream — still try to read text from it.
-      _readContentText(streamMatch.group(1)!, out);
+      try {
+        _readContentText(streamMatch.group(1)!, out);
+      } catch (_) {
+        continue; // garbled stream — skip, keep the rest
+      }
       continue;
     }
     // Locate the raw stream bytes: latin1 keeps 1 char = 1 byte.
-    final streamStart =
-        obj.start + objBody.indexOf(streamMatch.group(0)!) +
-            streamMatch.group(0)!.indexOf(streamMatch.group(1)!);
+    // NOTE: obj.start points at the `N` in `N 0 obj`; objBody starts
+    // AFTER the header, so anchor on the body start, not obj.start.
+    final match0 = streamMatch.group(0)!;
+    final streamStart = (obj.start + obj.group(0)!.indexOf(objBody)) +
+        objBody.indexOf(match0) +
+        match0.indexOf(streamMatch.group(1)!);
     // Find the end: 'endstream' in the raw string.
     final endIdx = raw.indexOf('endstream', streamStart);
     if (endIdx < 0) continue;
@@ -53,13 +63,12 @@ String _extract(List<int> bytes) {
         (data.last == 0x0A || data.last == 0x0D)) {
       data = data.sublist(0, data.length - 1);
     }
-    List<int> decoded;
     try {
-      decoded = ZLibDecoder().convert(data);
+      final decoded = ZLibDecoder().convert(data);
+      _readContentText(latin1.decode(decoded, allowInvalid: true), out);
     } catch (_) {
-      continue; // not actually flate — skip
+      continue; // not actually flate, or unreadable — skip, keep rest
     }
-    _readContentText(latin1.decode(decoded, allowInvalid: true), out);
   }
   return out.toString();
 }
@@ -172,13 +181,16 @@ void _readContentText(String content, StringBuffer out) {
     var hex = '';
     while (i < n && content[i] != '>') {
       final c = content[i];
-      if (!RegExp(r'\s').hasMatch(c)) hex += c;
+      // Binary garbage (e.g. from a non-skipped image stream) can land
+      // here — keep only real hex digits instead of throwing.
+      if (RegExp(r'[0-9a-fA-F]').hasMatch(c)) hex += c;
       i++;
     }
     if (i < n) i++; // skip '>'
     if (hex.length.isOdd) hex += '0';
     for (var k = 0; k < hex.length; k += 2) {
-      buf.writeCharCode(int.parse(hex.substring(k, k + 2), radix: 16));
+      final v = int.tryParse(hex.substring(k, k + 2), radix: 16);
+      if (v != null) buf.writeCharCode(v);
     }
     return buf.toString();
   }

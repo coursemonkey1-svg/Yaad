@@ -3,11 +3,14 @@ import 'package:flutter/material.dart';
 import '../data/db.dart';
 import '../l10n/strings.dart';
 import '../main.dart';
+import '../models/custom_purpose.dart';
 import '../models/transaction.dart';
-import '../models/purposes.dart';
+import '../theme.dart';
+import '../widgets/filter_sheet.dart';
 import 'home.dart';
 
 /// Transaction timeline with search and filters.
+/// Filters combine: direction AND (any selected purpose) AND search text.
 class TimelineScreen extends StatefulWidget {
   const TimelineScreen({super.key});
   @override
@@ -16,14 +19,58 @@ class TimelineScreen extends StatefulWidget {
 
 class _TimelineScreenState extends State<TimelineScreen> {
   String _query = '';
-  String? _purpose;
+  Set<String> _purposes = {};
   TxnDirection? _direction;
+  List<CustomPurpose> _customs = [];
   final _searchCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCustoms();
+  }
+
+  Future<void> _loadCustoms() async {
+    final customs = await YaadDb.customPurposes();
+    if (!mounted) return;
+    setState(() => _customs = customs);
+  }
 
   @override
   void dispose() {
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  int get _activeCount =>
+      _purposes.length + (_direction != null ? 1 : 0);
+
+  Future<void> _openFilters() async {
+    final s = Strings(appState.settings.language);
+    await showActivityFilterSheet(
+      context,
+      s: s,
+      initialPurposes: _purposes,
+      initialDirection: _direction,
+      customs: _customs,
+      onChanged: (sel) => setState(() {
+        _purposes = sel.purposes;
+        _direction = sel.direction;
+      }),
+    );
+    // A custom purpose may have been deleted inside the sheet.
+    await _loadCustoms();
+  }
+
+  void _clearAll(Strings s) {
+    _searchCtrl.clear();
+    setState(() {
+      _query = '';
+      _purposes = {};
+      _direction = null;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(s.get('filtersCleared'))));
   }
 
   @override
@@ -57,48 +104,22 @@ class _TimelineScreenState extends State<TimelineScreen> {
                 onChanged: (v) => setState(() => _query = v),
               ),
             ),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
+            Padding(
               padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
-                  _chip(s.get('all'), _purpose == null && _direction == null,
-                      () => setState(() {
-                            _purpose = null;
-                            _direction = null;
-                          })),
-                  _chip(s.get('moneyOut'), _direction == TxnDirection.out,
-                      () => setState(() {
-                            _direction = _direction == TxnDirection.out
-                                ? null
-                                : TxnDirection.out;
-                            _purpose = null;
-                          })),
-                  _chip(s.get('moneyIn'), _direction == TxnDirection.incoming,
-                      () => setState(() {
-                            _direction =
-                                _direction == TxnDirection.incoming
-                                    ? null
-                                    : TxnDirection.incoming;
-                            _purpose = null;
-                          })),
-                  for (final p in kPurposes)
-                    _chip(p.label, _purpose == p.id, () {
-                      setState(() {
-                        _purpose = _purpose == p.id ? null : p.id;
-                        _direction = null;
-                      });
-                    }),
+                  _filtersButton(s),
                 ],
               ),
             ),
             Expanded(
               child: FutureBuilder<List<YaadTransaction>>(
                 future: YaadDb.txns(
-                    limit: 500,
-                    query: _query.isEmpty ? null : _query,
-                    purpose: _purpose),
+                  limit: 500,
+                  query: _query.isEmpty ? null : _query,
+                  purposes: _purposes.isEmpty ? null : _purposes,
+                ),
                 builder: (context, snap) {
                   if (!snap.hasData) {
                     return const Center(
@@ -111,7 +132,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
                         .toList();
                   }
                   if (items.isEmpty) {
-                    return Center(child: Text(s.get('noTransactions')));
+                    return _emptyState(s);
                   }
                   return ListView.builder(
                     itemCount: items.length,
@@ -126,11 +147,60 @@ class _TimelineScreenState extends State<TimelineScreen> {
     );
   }
 
-  Widget _chip(String label, bool selected, VoidCallback onTap) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: FilterChip(
-          label: Text(label), selected: selected, onSelected: (_) => onTap()),
+  Widget _filtersButton(Strings s) {
+    final button = OutlinedButton.icon(
+      onPressed: _openFilters,
+      icon: const Icon(Icons.filter_list),
+      label: Text(s.get('filters')),
+    );
+    final n = _activeCount;
+    if (n == 0) return button;
+    return Badge(label: Text('$n'), child: button);
+  }
+
+  /// Never a blank screen: the empty state says what to do next.
+  Widget _emptyState(Strings s) {
+    final filtering =
+        _purposes.isNotEmpty || _direction != null || _query.isNotEmpty;
+    if (!filtering) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(Gap.x3),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(s.get('noTransactions')),
+              const SizedBox(height: 4),
+              Text(s.get('activityEmptySub'),
+                  style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
+        ),
+      );
+    }
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(Gap.x3),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.search_off,
+                size: 40,
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
+            const SizedBox(height: Gap.x1),
+            Text(s.get('noMatchFilters'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            Text(s.get('tryClearing'),
+                style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: Gap.x1),
+            TextButton(
+                onPressed: () => _clearAll(s),
+                child: Text(s.get('clearAll'))),
+          ],
+        ),
+      ),
     );
   }
 }

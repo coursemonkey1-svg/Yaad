@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/db.dart';
 import '../models/transaction.dart';
+import 'meezan_parser.dart';
 import 'ocr.dart';
 import 'pdf_text.dart';
 
@@ -33,6 +34,9 @@ class ParsedRow {
   final bool isDuplicate;
   bool selected;
   bool suggestedTransfer;
+  /// Purpose the statement parser suggested (e.g. Meezan keyword map).
+  /// Null means "no opinion" — commitRows falls back to the default.
+  final String? suggestedPurpose;
 
   ParsedRow({
     required this.date,
@@ -43,6 +47,7 @@ class ParsedRow {
     this.isDuplicate = false,
     this.selected = true,
     this.suggestedTransfer = false,
+    this.suggestedPurpose,
   });
 }
 
@@ -115,6 +120,9 @@ class StatementImporter {
       if (text.trim().isEmpty) {
         return ParsedStatement(fileName: fileName, pdfNoText: true);
       }
+      if (MeezanParser.looksLike(text)) {
+        return _parseMeezan(text, fileName);
+      }
       rows = _rowsFromText(text);
     } else {
       final text = await File(path).readAsString();
@@ -155,6 +163,41 @@ class StatementImporter {
       if (out.isNotEmpty) break; // first non-empty sheet wins
     }
     return out;
+  }
+
+  /// Meezan (Apache FOP) statements have their own glued layout, which
+  /// the generic column-based _parseRows can't read. Goes straight to
+  /// the preview like everything else — nothing is written before the
+  /// user confirms.
+  Future<ParsedStatement> _parseMeezan(String text, String fileName) async {
+    final stmt = MeezanParser.parse(text);
+    final parsed = <ParsedRow>[];
+    for (final r in stmt.rows) {
+      final dup = await YaadDb.findDuplicate(
+        bankReference: r.reference,
+        amount: r.amount,
+        rawMerchant: r.description,
+        date: r.date,
+      );
+      parsed.add(ParsedRow(
+        date: r.date,
+        merchant: r.description,
+        amount: r.amount,
+        kind: r.kind,
+        reference: r.reference,
+        isDuplicate: dup != null,
+        selected: dup == null,
+        suggestedPurpose: r.suggestedPurpose,
+      ));
+    }
+    _flagTransferPairs(parsed);
+    return ParsedStatement(
+      rows: parsed,
+      errors: stmt.warnings,
+      fileName: fileName,
+      mappingSignature: 'meezan-fop-v1',
+      mapping: null,
+    );
   }
 
   Future<ParsedStatement> _parseRows(
@@ -346,9 +389,8 @@ class StatementImporter {
               ? TxnDirection.out
               : TxnDirection.incoming,
           rawMerchant: row.merchant,
-          purpose: row.kind == TxnKind.spend
-              ? 'uncategorized'
-              : 'other_in',
+          purpose: row.suggestedPurpose ??
+              (row.kind == TxnKind.spend ? 'uncategorized' : 'other_in'),
           bankReference: row.reference,
           source: TxnSource.statementImport,
           status: TxnStatus.needsReview,

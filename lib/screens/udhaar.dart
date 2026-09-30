@@ -22,11 +22,18 @@ class UdhaarScreen extends StatefulWidget {
 
 class _UdhaarScreenState extends State<UdhaarScreen> {
   final _searchCtrl = TextEditingController();
+  _UdhaarDirection _dirFilter = _UdhaarDirection.all;
 
   @override
   void dispose() {
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  void _toggleDirectionFilter(_UdhaarDirection dir) {
+    setState(() {
+      _dirFilter = _dirFilter == dir ? _UdhaarDirection.all : dir;
+    });
   }
 
   Future<List<_PersonBalance>> _load() async {
@@ -77,12 +84,18 @@ class _UdhaarScreenState extends State<UdhaarScreen> {
             if (!snap.hasData) return const YaadLoading();
             final all = snap.data!;
             final q = _searchCtrl.text.trim().toLowerCase();
-            final items = q.isEmpty
-                ? all
-                : all
-                    .where((b) =>
-                        b.person.name.toLowerCase().contains(q))
-                    .toList();
+            final items = all.where((b) {
+              switch (_dirFilter) {
+                case _UdhaarDirection.owedToMe:
+                  if (b.owedToMe <= 0.005) return false;
+                case _UdhaarDirection.iOwe:
+                  if (b.iOwe <= 0.005) return false;
+                case _UdhaarDirection.all:
+                  break;
+              }
+              return q.isEmpty ||
+                  b.person.name.toLowerCase().contains(q);
+            }).toList();
             final owedToMe =
                 all.fold<double>(0, (t, b) => t + b.owedToMe);
             final iOwe = all.fold<double>(0, (t, b) => t + b.iOwe);
@@ -100,6 +113,10 @@ class _UdhaarScreenState extends State<UdhaarScreen> {
                           label: s.get('peopleOweYou'),
                           amount: owedToMe,
                           color: Colors.green,
+                          selected:
+                              _dirFilter == _UdhaarDirection.owedToMe,
+                          onTap: () => _toggleDirectionFilter(
+                              _UdhaarDirection.owedToMe),
                         ),
                       ),
                       const SizedBox(width: Gap.x1 + 4),
@@ -108,6 +125,9 @@ class _UdhaarScreenState extends State<UdhaarScreen> {
                           label: s.get('youOwe'),
                           amount: iOwe,
                           color: cs.error,
+                          selected: _dirFilter == _UdhaarDirection.iOwe,
+                          onTap: () => _toggleDirectionFilter(
+                              _UdhaarDirection.iOwe),
                         ),
                       ),
                     ],
@@ -158,6 +178,23 @@ class _UdhaarScreenState extends State<UdhaarScreen> {
                       title: s.get('noUdhaarYetTitle'),
                       body: s.get('noUdhaarYetBody'),
                     )
+                  else if (items.isEmpty &&
+                      _dirFilter != _UdhaarDirection.all)
+                    YaadEmptyState(
+                      icon: _dirFilter == _UdhaarDirection.owedToMe
+                          ? Icons.north_east
+                          : Icons.south_west,
+                      title: s.get(_dirFilter == _UdhaarDirection.owedToMe
+                          ? 'filterOweYouEmptyTitle'
+                          : 'filterYouOweEmptyTitle'),
+                      body: s.get(_dirFilter == _UdhaarDirection.owedToMe
+                          ? 'filterOweYouEmptyBody'
+                          : 'filterYouOweEmptyBody'),
+                      actionLabel: s.get('clearFilter'),
+                      onAction: () => setState(() {
+                        _dirFilter = _UdhaarDirection.all;
+                      }),
+                    )
                   else if (items.isEmpty)
                     Padding(
                       padding: const EdgeInsets.all(Gap.x3),
@@ -175,6 +212,11 @@ class _UdhaarScreenState extends State<UdhaarScreen> {
   }
 }
 
+/// Tapped balance-card filter for the Udhaar people list (§5):
+/// tap "People owe you" to see only people who owe you, tap "You owe"
+/// for only people you owe, tap the active card again to clear.
+enum _UdhaarDirection { all, owedToMe, iOwe }
+
 class _PersonBalance {
   final Person person;
   final double owedToMe, iOwe;
@@ -186,25 +228,66 @@ class _TotalCard extends StatelessWidget {
   final String label;
   final double amount;
   final Color color;
-  const _TotalCard(
-      {required this.label, required this.amount, required this.color});
+  final bool selected;
+  final VoidCallback onTap;
+  const _TotalCard({
+    required this.label,
+    required this.amount,
+    required this.color,
+    this.selected = false,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(Gap.x2),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(Radius.tile),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 4),
-          MoneyText(amount, size: 20, color: color),
-        ],
+    final shape =
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radius.tile));
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Material(
+        color: selected
+            ? color.withValues(alpha: 0.14)
+            : cs.surfaceContainerHighest.withValues(alpha: 0.6),
+        shape: shape,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: shape,
+          child: Container(
+            padding: const EdgeInsets.all(Gap.x2),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(Radius.tile),
+              border: Border.all(
+                color: selected ? color : Colors.transparent,
+                width: 1.5,
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(label,
+                          style:
+                              Theme.of(context).textTheme.bodySmall),
+                      const SizedBox(height: 4),
+                      MoneyText(amount, size: 20, color: color),
+                    ],
+                  ),
+                ),
+                if (selected)
+                  Padding(
+                    padding: const EdgeInsetsDirectional.only(start: 4),
+                    child: Icon(Icons.check_circle,
+                        color: color, size: 20),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

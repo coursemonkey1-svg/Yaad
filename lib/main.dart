@@ -7,6 +7,7 @@ import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 
 import 'l10n/strings.dart';
+import 'data/db.dart';
 import 'services/app_state.dart';
 import 'services/capture_flow.dart';
 import 'services/ocr.dart';
@@ -31,6 +32,13 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   tzdata.initializeTimeZones(); // on-device IANA database (free, offline)
   await appState.load();
+  // Custom purpose labels live in SQLite; register them so
+  // purposeLabel()/purposeIcon() resolve them everywhere.
+  try {
+    await YaadDb.refreshCustomPurposeRegistry();
+  } catch (_) {
+    // Non-fatal: custom ids fall back to "Other" until the next refresh.
+  }
   // One-time Pro plumbing (dormant until billing is enabled).
   proService.onUnlocked = () {
     appState.update(appState.settings.copyWith(proUnlocked: true));

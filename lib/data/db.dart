@@ -5,12 +5,14 @@ import '../models/transaction.dart';
 import '../models/person.dart';
 import '../models/lending.dart';
 import '../models/alias.dart';
+import '../models/custom_purpose.dart';
+import '../models/purposes.dart';
 
 /// On-device SQLite database. Everything stays on the phone —
 /// no account, no server, no sync. Free forever.
 class YaadDb {
   static const _name = 'yaad.db';
-  static const _version = 2;
+  static const _version = 3;
   static Database? _db;
 
   static Future<Database> get db async {
@@ -30,6 +32,7 @@ class YaadDb {
   /// purpose + direction (see [YaadTransaction.migrateKindName]).
   /// Lending rows become lendOut/borrowIn/repayOut/repayIn so they
   /// are never counted as spending again.
+  /// v2 → v3: add the `custom_purposes` table (user-created purposes).
   static Future<void> _upgrade(
       Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
@@ -49,6 +52,14 @@ class YaadDb {
             ELSE 'spend'
           END
       ''');
+    }
+    if (oldVersion < 3) {
+      await db.execute('''
+        CREATE TABLE custom_purposes(
+          id TEXT PRIMARY KEY,
+          label TEXT NOT NULL,
+          createdAt INTEGER NOT NULL
+        )''');
     }
   }
 
@@ -131,6 +142,15 @@ class YaadDb {
         lastUsed INTEGER NOT NULL
       )''');
 
+    // User-created purposes (spend side). Deleting one reassigns its
+    // transactions to 'uncategorized' — see deleteCustomPurpose.
+    await db.execute('''
+      CREATE TABLE custom_purposes(
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        createdAt INTEGER NOT NULL
+      )''');
+
     // Append-only audit trail: every create/edit/link/unlink/delete.
     await db.execute('''
       CREATE TABLE audit(
@@ -176,7 +196,7 @@ class YaadDb {
     int offset = 0,
     String? status,
     String? query,
-    String? purpose,
+    Set<String>? purposes,
     TxnKind? kind,
     String? personId,
     int? fromMs,
@@ -189,9 +209,10 @@ class YaadDb {
       where.add('status = ?');
       args.add(status);
     }
-    if (purpose != null) {
-      where.add('purpose = ?');
-      args.add(purpose);
+    if (purposes != null && purposes.isNotEmpty) {
+      where.add(
+          'purpose IN (${List.filled(purposes.length, '?').join(', ')})');
+      args.addAll(purposes);
     }
     if (kind != null) {
       where.add('kind = ?');
@@ -484,6 +505,81 @@ class YaadDb {
 
   static String _norm(String s) =>
       s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9 ]'), '').trim();
+
+  // ---------- custom purposes ----------
+
+  /// All user-created purposes, oldest first. Included in backup/restore.
+  static Future<List<CustomPurpose>> customPurposes() async {
+    final d = await db;
+    final rows =
+        await d.query('custom_purposes', orderBy: 'createdAt ASC');
+    return rows.map(CustomPurpose.fromMap).toList();
+  }
+
+  /// id → label map, used to rebuild the in-memory registry that
+  /// purposeLabel()/purposeIcon() consult.
+  static Future<Map<String, String>> customPurposeLabelMap() async {
+    final customs = await customPurposes();
+    return {for (final c in customs) c.id: c.label};
+  }
+
+  /// Rebuilds the in-memory registry after the set of custom purposes
+  /// changed (app start, create, delete).
+  static Future<void> refreshCustomPurposeRegistry() async {
+    registerCustomPurposes(await customPurposeLabelMap());
+  }
+
+  /// Inserts a custom purpose; makes the id unique when the slug collides.
+  static Future<CustomPurpose> insertCustomPurpose(String label) async {
+    final d = await db;
+    final clean = label.trim();
+    var id = CustomPurpose.idFor(clean);
+    var n = 2;
+    while ((await d.query('custom_purposes',
+            where: 'id = ?', whereArgs: [id], limit: 1))
+        .isNotEmpty) {
+      id = '${CustomPurpose.idFor(clean)}_$n';
+      n++;
+    }
+    final cp = CustomPurpose(
+        id: id, label: clean, createdAt: DateTime.now().millisecondsSinceEpoch);
+    await d.insert('custom_purposes', cp.toMap());
+    await _audit(d, 'custom_purpose', id, 'created', clean);
+    await refreshCustomPurposeRegistry();
+    return cp;
+  }
+
+  /// Whether a label (case-insensitive) already exists — fixed or custom.
+  static Future<bool> purposeLabelExists(String label) async {
+    final needle = label.trim().toLowerCase();
+    if (needle.isEmpty) return false;
+    for (final p in kSpendPurposes) {
+      if (p.label.toLowerCase() == needle) return true;
+    }
+    for (final p in kReceiveSources) {
+      if (p.label.toLowerCase() == needle) return true;
+    }
+    for (final c in await customPurposes()) {
+      if (c.label.toLowerCase() == needle) return true;
+    }
+    return false;
+  }
+
+  /// Deletes a custom purpose. Transactions already using it are NEVER
+  /// orphaned — they are reassigned to 'uncategorized' ("Other"), the
+  /// same neutral default new captures start with.
+  static Future<void> deleteCustomPurpose(String id) async {
+    final d = await db;
+    await d.transaction((txn) async {
+      await txn
+          .delete('custom_purposes', where: 'id = ?', whereArgs: [id]);
+      await txn.update('transactions', {'purpose': 'uncategorized'},
+          where: 'purpose = ?', whereArgs: [id]);
+    });
+    await _audit(d, 'custom_purpose', id, 'deleted',
+        'transactions reassigned to uncategorized');
+    await refreshCustomPurposeRegistry();
+  }
 
   // ---------- audit / maintenance ----------
 

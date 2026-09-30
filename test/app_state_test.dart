@@ -8,10 +8,13 @@ void main() {
   setUpAll(() => tzdata.initializeTimeZones());
 
   group('AppState.money', () {
-    test('formats PKR with thousand separators', () {
+    test('formats PKR with Pakistani (lakh/crore) grouping', () {
       final s = AppState()..settings = const AppSettings();
       expect(s.money(2450), 'PKR 2,450');
-      expect(s.money(1000000), 'PKR 1,000,000');
+      expect(s.money(100000), 'PKR 1,00,000');
+      expect(s.money(1000000), 'PKR 10,00,000');
+      expect(s.money(10000000), 'PKR 1,00,00,000');
+      expect(s.money(-50000), 'PKR -50,000');
       expect(s.money(0), 'PKR 0');
     });
 
