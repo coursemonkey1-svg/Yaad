@@ -2,24 +2,33 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../data/db.dart';
 import '../l10n/strings.dart';
 import '../main.dart';
 import '../models/alias.dart';
+import '../models/purposes.dart';
 import '../models/transaction.dart';
 import '../services/ocr.dart';
 import '../services/suggest.dart';
+import '../theme.dart';
 import '../widgets/note_field.dart';
 import '../widgets/purpose_grid.dart';
 
 /// The confirmation card: amount / merchant / date prefilled from the
 /// receipt, one-tap purpose, optional note + voice, Save.
 /// Used for: shared receipts, OCR images, manual entry, and editing.
+/// Kind-aware (§2): "I spent" / "I received" select which bucket the
+/// money lands in — never just +/−.
 class ConfirmScreen extends StatefulWidget {
   final OcrResult? initial;
   final YaadTransaction? editing;
-  const ConfirmScreen({super.key, this.initial, this.editing});
+  final TxnKind initialKind;
+
+  const ConfirmScreen(
+      {super.key, this.initial, this.editing, this.initialKind = TxnKind.spend});
 
   @override
   State<ConfirmScreen> createState() => _ConfirmScreenState();
@@ -31,27 +40,35 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
   final _noteCtrl = TextEditingController();
   final _aliasCtrl = TextEditingController();
   final _suggest = SuggestionService();
+  final _speech = stt.SpeechToText();
 
   String _purpose = 'uncategorized';
   String? _suggestedPurpose;
   String? _suggestionReason;
   MerchantAlias? _aliasSuggestion;
-  bool _isOut = true;
+  late TxnKind _kind;
   DateTime _date = DateTime.now();
   bool _saving = false;
+  bool _listening = false;
+
+  bool get _isSpend => _kind == TxnKind.spend;
 
   @override
   void initState() {
     super.initState();
     final e = widget.editing;
     final r = widget.initial;
+    _kind = e?.kind ?? widget.initialKind;
+    // Lending kinds are recorded on the Udhaar screens, not here.
+    if (_kind != TxnKind.spend && _kind != TxnKind.receive) {
+      _kind = TxnKind.spend;
+    }
     if (e != null) {
       _amountCtrl.text = e.amount.toStringAsFixed(
           e.amount.truncateToDouble() == e.amount ? 0 : 2);
       _merchantCtrl.text = e.rawMerchant;
       _noteCtrl.text = e.note;
       _purpose = e.purpose;
-      _isOut = e.direction == TxnDirection.out;
       _date = e.dateTime;
       _loadAlias(e.rawMerchant);
     } else if (r != null) {
@@ -65,6 +82,13 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         _loadSuggestion(r.merchant!);
       }
       if (r.date != null) _date = r.date!;
+      // Never-silent share: nothing parsed → keep the shared text as
+      // the note so nothing is lost (§1).
+      if (r.amount == null &&
+          (r.merchant == null || r.merchant!.isEmpty) &&
+          r.rawText.isNotEmpty) {
+        _noteCtrl.text = r.rawText;
+      }
     }
   }
 
@@ -99,6 +123,56 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     super.dispose();
   }
 
+  /// Voice note: one-line explanation, request at tap-time, guide to
+  /// settings on denial (§4 mic fix — manifest already declares it).
+  Future<void> _toggleMic() async {
+    final s = Strings(appState.settings.language);
+    if (_listening) {
+      await _speech.stop();
+      if (mounted) setState(() => _listening = false);
+      return;
+    }
+    final status = await Permission.microphone.request();
+    if (!mounted) return;
+    if (!status.isGranted) {
+      if (status.isPermanentlyDenied) {
+        await showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: Text(s.get('micTitle')),
+            content: Text(s.get('micSettingsBody')),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text(s.get('cancel'))),
+              FilledButton(
+                  onPressed: () {
+                    openAppSettings();
+                    Navigator.of(context).pop();
+                  },
+                  child: Text(s.get('openSettings'))),
+            ],
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(s.get('micDenied'))));
+      }
+      return;
+    }
+    final available = await _speech.initialize();
+    if (!available || !mounted) return;
+    setState(() => _listening = true);
+    await _speech.listen(
+      onResult: (res) {
+        _noteCtrl.text = (_noteCtrl.text.isEmpty ? '' : '${_noteCtrl.text} ') +
+            res.recognizedWords;
+      },
+      localeId: appState.settings.language == 'ur' ? 'ur_PK' : 'en_PK',
+    );
+    if (mounted) setState(() => _listening = false);
+  }
+
   Future<void> _save({required bool needsReview}) async {
     if (_saving) return;
     final amount =
@@ -122,7 +196,9 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       await YaadDb.updateTxn(e.copyWith(
         amount: amount,
         dateTime: _date,
-        direction: _isOut ? TxnDirection.out : TxnDirection.incoming,
+        kind: _kind,
+        direction:
+            _isSpend ? TxnDirection.out : TxnDirection.incoming,
         rawMerchant: merchant,
         aliasId: aliasId ?? e.aliasId,
         purpose: _purpose,
@@ -151,7 +227,9 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         amount: amount,
         currency: appState.settings.currency,
         dateTime: _date,
-        direction: _isOut ? TxnDirection.out : TxnDirection.incoming,
+        kind: _kind,
+        direction:
+            _isSpend ? TxnDirection.out : TxnDirection.incoming,
         rawMerchant: merchant,
         aliasId: aliasId,
         purpose: _purpose,
@@ -178,24 +256,32 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     if (d != null) setState(() => _date = d);
   }
 
+  void _setKind(TxnKind kind) {
+    setState(() {
+      _kind = kind;
+      // Reset to the neutral default of the new bucket.
+      _purpose = kind == TxnKind.spend ? 'uncategorized' : 'other_in';
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = Strings(appState.settings.language);
     final r = widget.initial;
     final isEdit = widget.editing != null;
     return Scaffold(
-      appBar: AppBar(
-          title: Text(isEdit ? s.get('edit') : s.get('capture'))),
+      appBar:
+          AppBar(title: Text(isEdit ? s.get('edit') : s.get('capture'))),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(Gap.x2),
         children: [
           if (r?.imagePath != null)
             ClipRRect(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(Radius.tile),
               child: Image.file(File(r!.imagePath!),
                   height: 160, fit: BoxFit.cover),
             ),
-          if (r?.imagePath != null) const SizedBox(height: 12),
+          if (r?.imagePath != null) const SizedBox(height: Gap.x1 + 4),
           // Amount — big, first, numeric keyboard.
           TextField(
             controller: _amountCtrl,
@@ -213,14 +299,30 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
               border: const OutlineInputBorder(),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: Gap.x1 + 4),
+          // Kind selector: which bucket this lands in.
+          SegmentedButton<TxnKind>(
+            segments: [
+              ButtonSegment(
+                  value: TxnKind.spend,
+                  label: Text(s.get('iSpent')),
+                  icon: const Icon(Icons.north_east)),
+              ButtonSegment(
+                  value: TxnKind.receive,
+                  label: Text(s.get('iReceived')),
+                  icon: const Icon(Icons.south_west)),
+            ],
+            selected: {_kind},
+            onSelectionChanged: (v) => _setKind(v.first),
+          ),
+          const SizedBox(height: Gap.x1 + 4),
           Row(
             children: [
               Expanded(
                 child: TextField(
                   controller: _merchantCtrl,
                   decoration: InputDecoration(
-                    labelText: s.get('merchant'),
+                    labelText: _isSpend ? s.get('merchant') : s.get('from'),
                     border: const OutlineInputBorder(),
                   ),
                   onChanged: (v) {
@@ -228,50 +330,35 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
                   },
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: Gap.x1),
               InkWell(
                 onTap: _pickDate,
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(Radius.chip),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 12, vertical: 16),
                   decoration: BoxDecoration(
                       border: Border.all(
                           color: Theme.of(context).dividerColor),
-                      borderRadius: BorderRadius.circular(8)),
+                      borderRadius:
+                          BorderRadius.circular(Radius.chip)),
                   child: Text(appState.formatDate(_date)),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          // Direction toggle.
-          SegmentedButton<bool>(
-            segments: [
-              ButtonSegment(
-                  value: true,
-                  label: Text(s.get('moneyOut')),
-                  icon: const Icon(Icons.arrow_upward)),
-              ButtonSegment(
-                  value: false,
-                  label: Text(s.get('moneyIn')),
-                  icon: const Icon(Icons.arrow_downward)),
-            ],
-            selected: {_isOut},
-            onSelectionChanged: (v) =>
-                setState(() => _isOut = v.first),
-          ),
-          const SizedBox(height: 16),
-          Text(s.get('purpose'),
+          const SizedBox(height: Gap.x1),
+          Text(_isSpend ? s.get('purpose') : s.get('source'),
               style: const TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
+          const SizedBox(height: Gap.x1),
           PurposeGrid(
+            purposes: _isSpend ? kSpendPurposes : kReceiveSources,
             selected: _purpose,
             onSelect: (p) => setState(() => _purpose = p),
             suggested: _suggestedPurpose,
             suggestionReason: _suggestionReason,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: Gap.x1 + 4),
           // Alias: your own recognizable name.
           TextField(
             controller: _aliasCtrl,
@@ -299,9 +386,19 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
               ),
             ),
           ],
-          const SizedBox(height: 12),
-          NoteField(controller: _noteCtrl),
-          const SizedBox(height: 20),
+          const SizedBox(height: Gap.x1 + 4),
+          NoteField(
+            controller: _noteCtrl,
+            micButton: IconButton(
+              tooltip: s.get('micTitle'),
+              icon: Icon(_listening ? Icons.mic : Icons.mic_none_outlined,
+                  color: _listening
+                      ? Theme.of(context).colorScheme.error
+                      : null),
+              onPressed: _toggleMic,
+            ),
+          ),
+          const SizedBox(height: Gap.x3),
           FilledButton(
             onPressed: _saving ? null : () => _save(needsReview: false),
             style: FilledButton.styleFrom(
@@ -311,7 +408,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
                 : Text(s.get('save'),
                     style: const TextStyle(fontSize: 18)),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: Gap.x1),
           if (!isEdit)
             TextButton(
               onPressed: _saving ? null : () => _save(needsReview: true),

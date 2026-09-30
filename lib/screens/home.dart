@@ -7,31 +7,35 @@ import '../models/lending.dart';
 import '../models/transaction.dart';
 import '../models/purposes.dart';
 import '../models/alias.dart';
+import '../theme.dart';
+import '../widgets/atoms.dart';
 import 'review.dart';
 import 'summary.dart';
 import 'confirm.dart';
 import 'timeline.dart';
 
-/// Dashboard: spending this week/month, needs-review count,
-/// lent-out totals, outstanding balances, recent transactions.
+/// Dashboard: one question per glance (§3).
+/// Spent this month, received, who owes you / you owe, needs-your-eye,
+/// recent activity. Lending never mixes into spending (§2).
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+  /// Called when the user taps an Udhaar card (switches to the Udhaar tab).
+  final VoidCallback? onGoToUdhaar;
+  const HomeScreen({super.key, this.onGoToUdhaar});
 
   Future<_Dash> _load() async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final weekMs = appState.startOfWeekMs();
     final monthMs = appState.startOfMonthMs();
-    final dayMs = appState.startOfTodayMs();
 
-    final weekOut = await YaadDb.sumOut(weekMs, nowMs);
-    final monthOut = await YaadDb.sumOut(monthMs, nowMs);
-    final todayOut = await YaadDb.sumOut(dayMs, nowMs);
+    final monthSpent = await YaadDb.sumSpent(monthMs, nowMs);
+    final monthReceived = await YaadDb.sumReceived(monthMs, nowMs);
     final reviewCount =
         await YaadDb.countByStatus(TxnStatus.needsReview.name);
 
-    // Lending totals.
+    // Udhaar totals: plain separation from spending.
     final lending = await YaadDb.allLending();
-    double lentOut = 0, owedToMe = 0;
+    double owedToMe = 0, iOwe = 0;
+    final peopleOwing = <String>{};
+    final peopleOwed = <String>{};
     for (final l in lending) {
       if (l.status == LendingStatus.settled ||
           l.status == LendingStatus.writtenOff ||
@@ -40,29 +44,46 @@ class HomeScreen extends StatelessWidget {
       }
       final repaid = await YaadDb.totalRepaid(l.id);
       final remaining = l.originalAmount - repaid;
-      if (remaining <= 0) continue;
+      if (remaining <= 0.005) continue;
       if (l.isOwedToMe) {
-        lentOut += remaining;
-      } else {
         owedToMe += remaining;
+        peopleOwing.add(l.personId);
+      } else {
+        iOwe += remaining;
+        peopleOwed.add(l.personId);
       }
     }
 
     final recent = await YaadDb.txns(limit: 5);
     return _Dash(
-      weekOut: weekOut,
-      monthOut: monthOut,
-      todayOut: todayOut,
+      monthSpent: monthSpent,
+      monthReceived: monthReceived,
       reviewCount: reviewCount,
-      lentOut: lentOut,
       owedToMe: owedToMe,
+      iOwe: iOwe,
+      peopleOwing: peopleOwing.length,
+      peopleOwed: peopleOwed.length,
       recent: recent,
     );
+  }
+
+  String _monthName(BuildContext context) {
+    const en = [
+      'January', 'February', 'March', 'April', 'May', 'June', 'July',
+      'August', 'September', 'October', 'November', 'December'
+    ];
+    const ur = [
+      'جنوری', 'فروری', 'مارچ', 'اپریل', 'مئی', 'جون', 'جولائی',
+      'اگست', 'ستمبر', 'اکتوبر', 'نومبر', 'دسمبر'
+    ];
+    final m = appState.nowInTz().month;
+    return appState.settings.language == 'ur' ? ur[m - 1] : en[m - 1];
   }
 
   @override
   Widget build(BuildContext context) {
     final s = Strings(appState.settings.language);
+    final cs = Theme.of(context).colorScheme;
     return AnimatedBuilder(
       animation: appState,
       builder: (context, _) => Scaffold(
@@ -80,77 +101,86 @@ class HomeScreen extends StatelessWidget {
         body: FutureBuilder<_Dash>(
           future: _load(),
           builder: (context, snap) {
+            if (snap.hasError) {
+              return YaadErrorState(
+                message: '${snap.error}',
+                onRetry: () => appState.refresh(),
+              );
+            }
             if (!snap.hasData) {
-              return const Center(child: CircularProgressIndicator());
+              return const YaadLoading();
             }
             final d = snap.data!;
             return RefreshIndicator(
               onRefresh: () async => appState.refresh(),
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(Gap.x2),
                 children: [
+                  // 1. Hero: spent this month.
                   _HeroCard(
-                      label: s.get('thisMonth'),
-                      amount: appState.money(d.monthOut),
-                      sub:
-                          '${s.get('thisWeek')}: ${appState.money(d.weekOut)}',
-                      onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                              builder: (_) => const SummaryScreen()))),
-                  const SizedBox(height: 12),
+                    label: '${s.get('spentIn')} ${_monthName(context)}',
+                    amount: d.monthSpent,
+                    sub:
+                        '${s.get('received')}: ${appState.money(d.monthReceived)}',
+                    onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const SummaryScreen())),
+                  ),
+                  const SizedBox(height: Gap.x1 + 4),
+                  // 2. Udhaar cards (hidden when zero — calm screen).
                   Row(
                     children: [
-                      Expanded(
+                      if (d.owedToMe > 0)
+                        Expanded(
                           child: _MiniCard(
-                              icon: Icons.inbox_outlined,
-                              label: s.get('needsReview'),
-                              value: '${d.reviewCount}',
-                              onTap: () => Navigator.of(context)
-                                  .push(MaterialPageRoute(
-                                      builder: (_) =>
-                                          const ReviewScreen())))),
-                      const SizedBox(width: 12),
-                      Expanded(
+                            icon: Icons.handshake_outlined,
+                            iconColor: Colors.green,
+                            label: s.get('peopleOweYou'),
+                            value: d.owedToMe,
+                            sub:
+                                '${d.peopleOwing} ${d.peopleOwing == 1 ? 'person' : 'people'}',
+                            onTap: onGoToUdhaar ?? () {},
+                          ),
+                        ),
+                      if (d.owedToMe > 0 && d.iOwe > 0)
+                        const SizedBox(width: Gap.x1 + 4),
+                      if (d.iOwe > 0)
+                        Expanded(
                           child: _MiniCard(
-                              icon: Icons.handshake_outlined,
-                              label: s.get('lentOut'),
-                              value: appState.money(d.lentOut),
-                              onTap: null)),
+                            icon: Icons.handshake_outlined,
+                            iconColor: cs.error,
+                            label: s.get('youOwe'),
+                            value: d.iOwe,
+                            sub:
+                                '${d.peopleOwed} ${d.peopleOwed == 1 ? 'person' : 'people'}',
+                            onTap: onGoToUdhaar ?? () {},
+                          ),
+                        ),
                     ],
                   ),
-                  if (d.owedToMe > 0) ...[
-                    const SizedBox(height: 12),
-                    _MiniCard(
-                        icon: Icons.warning_amber_outlined,
-                        label: s.get('owedToYou'),
-                        value: appState.money(d.owedToMe),
-                        onTap: null),
-                  ],
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(s.get('recent'),
-                          style: const TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold)),
-                      TextButton(
-                        onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                                builder: (_) => const TimelineScreen())),
-                        child: Text(s.get('seeAll')),
-                      ),
-                    ],
+                  if (d.owedToMe > 0 || d.iOwe > 0)
+                    const SizedBox(height: Gap.x1 + 4),
+                  // 3. Needs your eye.
+                  if (d.reviewCount > 0)
+                    _ReviewCard(count: d.reviewCount),
+                  if (d.reviewCount > 0)
+                    const SizedBox(height: Gap.x1 + 4),
+                  // 4. Recent activity.
+                  const SizedBox(height: Gap.x1),
+                  SectionHeader(
+                    title: s.get('recent'),
+                    actionLabel: s.get('seeAll'),
+                    onAction: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const TimelineScreen())),
                   ),
                   if (d.recent.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 24),
-                      child: Center(
-                          child: Text(s.get('noTransactions'),
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium)),
+                    YaadEmptyState(
+                      icon: Icons.receipt_long_outlined,
+                      title: s.get('noSpendingYet'),
+                      body: s.get('tapAddHint'),
                     ),
-                  for (final t in d.recent) _TxnRow(txn: t),
+                  for (final t in d.recent) TxnRow(txn: t),
                 ],
               ),
             );
@@ -159,25 +189,27 @@ class HomeScreen extends StatelessWidget {
       ),
     );
   }
-}
 
 class _Dash {
-  final double weekOut, monthOut, todayOut, lentOut, owedToMe;
-  final int reviewCount;
+  final double monthSpent, monthReceived;
+  final double owedToMe, iOwe;
+  final int reviewCount, peopleOwing, peopleOwed;
   final List<YaadTransaction> recent;
   _Dash({
-    required this.weekOut,
-    required this.monthOut,
-    required this.todayOut,
+    required this.monthSpent,
+    required this.monthReceived,
     required this.reviewCount,
-    required this.lentOut,
     required this.owedToMe,
+    required this.iOwe,
+    required this.peopleOwing,
+    required this.peopleOwed,
     required this.recent,
   });
 }
 
 class _HeroCard extends StatelessWidget {
-  final String label, amount, sub;
+  final String label, sub;
+  final double amount;
   final VoidCallback onTap;
   const _HeroCard(
       {required this.label,
@@ -187,39 +219,35 @@ class _HeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(Radius.card),
       child: Container(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(Gap.x3),
         decoration: BoxDecoration(
-          gradient: LinearGradient(colors: [
-            Theme.of(context).colorScheme.primary,
-            Theme.of(context).colorScheme.tertiary,
-          ]),
-          borderRadius: BorderRadius.circular(20),
+          gradient: LinearGradient(
+            colors: [cs.primary, cs.tertiary],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(Radius.card),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(label,
                 style: TextStyle(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onPrimary
-                        .withValues(alpha: 0.8))),
+                    color: cs.onPrimary.withValues(alpha: 0.85),
+                    fontSize: 14)),
             const SizedBox(height: 4),
-            Text(amount,
-                style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onPrimary)),
+            MoneyText(amount,
+                size: 36, color: cs.onPrimary),
+            const SizedBox(height: 4),
             Text(sub,
                 style: TextStyle(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onPrimary
-                        .withValues(alpha: 0.8))),
+                    color: cs.onPrimary.withValues(alpha: 0.85),
+                    fontSize: 14)),
           ],
         ),
       ),
@@ -229,36 +257,43 @@ class _HeroCard extends StatelessWidget {
 
 class _MiniCard extends StatelessWidget {
   final IconData icon;
-  final String label, value;
-  final VoidCallback? onTap;
-  const _MiniCard(
-      {required this.icon,
-      required this.label,
-      required this.value,
-      required this.onTap});
+  final Color iconColor;
+  final String label, sub;
+  final double value;
+  final VoidCallback onTap;
+  const _MiniCard({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.value,
+    required this.sub,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(Radius.tile),
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(Gap.x2),
         decoration: BoxDecoration(
-          color:
-              Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(16),
+          color: cs.surfaceContainerHighest.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(Radius.tile),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(height: 8),
-            Text(value,
-                style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold)),
-            Text(label,
-                style: Theme.of(context).textTheme.bodySmall),
+            Icon(icon, color: iconColor),
+            const SizedBox(height: Gap.x1),
+            MoneyText(value, size: 20),
+            Text(label, style: Theme.of(context).textTheme.bodySmall),
+            Text(sub,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: cs.onSurfaceVariant)),
           ],
         ),
       ),
@@ -266,7 +301,50 @@ class _MiniCard extends StatelessWidget {
   }
 }
 
-/// One transaction row, reused across screens.
+class _ReviewCard extends StatelessWidget {
+  final int count;
+  const _ReviewCard({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Strings(appState.settings.language);
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const ReviewScreen())),
+      borderRadius: BorderRadius.circular(Radius.tile),
+      child: Container(
+        padding: const EdgeInsets.all(Gap.x2),
+        decoration: BoxDecoration(
+          color: cs.secondaryContainer.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(Radius.tile),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.visibility_outlined, color: cs.secondary),
+            const SizedBox(width: Gap.x1 + 4),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(s.get('needsYourEye'),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text('$count ${s.get('needsYourEyeSub')}',
+                      style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One transaction row, reused across Home / Activity / Review.
+/// Plain words first: kind label + amount, never bare −/+ signs.
 class TxnRow extends StatelessWidget {
   final YaadTransaction txn;
   final VoidCallback? onTap;
@@ -285,27 +363,27 @@ class _TxnRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isOut = txn.direction == TxnDirection.out;
+    final cs = Theme.of(context).colorScheme;
     return FutureBuilder<MerchantAlias?>(
       future: YaadDb.aliasFor(txn.rawMerchant),
       builder: (context, snap) {
         final alias = snap.data?.alias;
         final title = (alias != null && alias.isNotEmpty)
             ? alias
-            : (txn.rawMerchant.isEmpty ? '—' : txn.rawMerchant);
-        final subtitle = alias != null && alias.isNotEmpty
-            ? txn.rawMerchant
-            : purposeLabel(txn.purpose);
+            : (txn.rawMerchant.isEmpty
+                ? kindLabel(txn.kind)
+                : txn.rawMerchant);
+        final subtitle =
+            '${kindLabel(txn.kind)} · ${purposeLabel(txn.purpose)} · ${appState.formatDate(txn.dateTime)}';
         return ListTile(
           onTap: onTap ??
               () => Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => ConfirmScreen(editing: txn))),
           leading: CircleAvatar(
-            backgroundColor: Theme.of(context)
-                .colorScheme
-                .surfaceContainerHighest,
-            child: Icon(purposeIcon(txn.purpose),
-                color: Theme.of(context).colorScheme.primary),
+            backgroundColor:
+                cs.surfaceContainerHighest.withValues(alpha: 0.7),
+            child: Icon(_iconFor(txn.kind, txn.purpose),
+                color: _colorFor(context, txn.kind)),
           ),
           title: Text(title,
               maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -316,20 +394,55 @@ class _TxnRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '${isOut ? '−' : '+'}${appState.money(txn.amount)}',
+                appState.money(txn.amount),
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  color: isOut
-                      ? Theme.of(context).colorScheme.error
-                      : Colors.green,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  color: _colorFor(context, txn.kind),
                 ),
               ),
               if (txn.status == TxnStatus.needsReview)
-                const Icon(Icons.pending_outlined, size: 14),
+                Icon(Icons.pending_outlined,
+                    size: 14, color: cs.onSurfaceVariant),
             ],
           ),
         );
       },
     );
+  }
+
+  IconData _iconFor(TxnKind kind, String purpose) {
+    switch (kind) {
+      case TxnKind.spend:
+        return purposeIcon(purpose);
+      case TxnKind.receive:
+        return Icons.south_west;
+      case TxnKind.lendOut:
+        return Icons.north_east;
+      case TxnKind.borrowIn:
+        return Icons.south_west;
+      case TxnKind.repayOut:
+      case TxnKind.repayIn:
+        return Icons.payments_outlined;
+      case TxnKind.transfer:
+        return Icons.swap_horiz;
+    }
+  }
+
+  Color _colorFor(BuildContext context, TxnKind kind) {
+    final cs = Theme.of(context).colorScheme;
+    switch (kind) {
+      case TxnKind.spend:
+        return cs.error;
+      case TxnKind.receive:
+        return Colors.green;
+      case TxnKind.lendOut:
+      case TxnKind.borrowIn:
+      case TxnKind.repayOut:
+      case TxnKind.repayIn:
+        return cs.primary;
+      case TxnKind.transfer:
+        return cs.onSurfaceVariant;
+    }
   }
 }

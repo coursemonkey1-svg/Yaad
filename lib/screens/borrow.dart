@@ -8,18 +8,17 @@ import '../models/lending.dart';
 import '../models/person.dart';
 import '../theme.dart';
 
-/// "I lent money" — one direction only, no toggles (§5).
-/// The money is tracked as Udhaar; it never touches spending.
-class LendScreen extends StatefulWidget {
+/// "I borrowed money" — the mirror of LendScreen, one direction only (§5).
+class BorrowScreen extends StatefulWidget {
   final double? initialAmount;
   final Person? initialPerson;
-  const LendScreen({super.key, this.initialAmount, this.initialPerson});
+  const BorrowScreen({super.key, this.initialAmount, this.initialPerson});
 
   @override
-  State<LendScreen> createState() => _LendScreenState();
+  State<BorrowScreen> createState() => _BorrowScreenState();
 }
 
-class _LendScreenState extends State<LendScreen> {
+class _BorrowScreenState extends State<BorrowScreen> {
   final _personCtrl = TextEditingController();
   final _amountCtrl = TextEditingController();
   final _reasonCtrl = TextEditingController();
@@ -82,7 +81,7 @@ class _LendScreenState extends State<LendScreen> {
       currency: appState.settings.currency,
       date: _date,
       reason: _reasonCtrl.text.trim(),
-      isOwedToMe: true,
+      isOwedToMe: false,
     ));
     appState.refresh();
     if (mounted) Navigator.of(context).pop();
@@ -92,11 +91,11 @@ class _LendScreenState extends State<LendScreen> {
   Widget build(BuildContext context) {
     final s = Strings(appState.settings.language);
     return Scaffold(
-      appBar: AppBar(title: Text(s.get('iLentMoney'))),
+      appBar: AppBar(title: Text(s.get('iBorrowedMoney'))),
       body: ListView(
         padding: const EdgeInsets.all(Gap.x2),
         children: [
-          Text(s.get('whoDidYouLendTo'),
+          Text(s.get('whoDidYouBorrowFrom'),
               style:
                   const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
           const SizedBox(height: Gap.x1),

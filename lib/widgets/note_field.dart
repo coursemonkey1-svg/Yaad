@@ -4,9 +4,13 @@ import 'package:speech_to_text/speech_to_text.dart';
 /// A note field with a mic button: speak in English, Urdu or Roman Urdu
 /// (whatever the device keyboard / speech engine supports) and the words
 /// land in the note. Keeps capture to seconds.
+///
+/// When [micButton] is provided it replaces the built-in mic (used by
+/// screens that run their own runtime-permission flow).
 class NoteField extends StatefulWidget {
   final TextEditingController controller;
-  const NoteField({super.key, required this.controller});
+  final Widget? micButton;
+  const NoteField({super.key, required this.controller, this.micButton});
 
   @override
   State<NoteField> createState() => _NoteFieldState();
@@ -48,12 +52,13 @@ class _NoteFieldState extends State<NoteField> {
         labelText: 'Note (optional)',
         hintText: 'e.g. dinner with Ali, paid my share',
         border: const OutlineInputBorder(),
-        suffixIcon: IconButton(
-          icon: Icon(_listening ? Icons.mic : Icons.mic_none_outlined,
-              color: _listening ? Colors.red : null),
-          tooltip: _listening ? 'Listening… tap to stop' : 'Speak note',
-          onPressed: _toggle,
-        ),
+        suffixIcon: widget.micButton ??
+            IconButton(
+              icon: Icon(_listening ? Icons.mic : Icons.mic_none_outlined,
+                  color: _listening ? Colors.red : null),
+              tooltip: _listening ? 'Listening… tap to stop' : 'Speak note',
+              onPressed: _toggle,
+            ),
       ),
     );
   }

@@ -10,6 +10,7 @@ void main() {
   testWidgets('renders every purpose and selects on tap', (tester) async {
     String? tapped;
     await tester.pumpWidget(wrap(PurposeGrid(
+      purposes: kPurposes,
       selected: 'uncategorized',
       onSelect: (p) => tapped = p,
     )));
@@ -26,6 +27,7 @@ void main() {
   testWidgets('shows suggestion banner and tapping it selects', (tester) async {
     String? tapped;
     await tester.pumpWidget(wrap(PurposeGrid(
+      purposes: kPurposes,
       selected: 'uncategorized',
       onSelect: (p) => tapped = p,
       suggested: 'food',
@@ -42,6 +44,7 @@ void main() {
 
   testWidgets('no banner when suggestion equals selected', (tester) async {
     await tester.pumpWidget(wrap(PurposeGrid(
+      purposes: kPurposes,
       selected: 'food',
       onSelect: (_) {},
       suggested: 'food',

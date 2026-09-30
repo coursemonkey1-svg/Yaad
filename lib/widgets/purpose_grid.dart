@@ -4,6 +4,7 @@ import '../models/purposes.dart';
 
 /// Large one-tap purpose buttons. The heart of the 5-second capture.
 class PurposeGrid extends StatelessWidget {
+  final List<Purpose> purposes;
   final String selected;
   final ValueChanged<String> onSelect;
   final String? suggested;
@@ -11,6 +12,7 @@ class PurposeGrid extends StatelessWidget {
 
   const PurposeGrid({
     super.key,
+    required this.purposes,
     required this.selected,
     required this.onSelect,
     this.suggested,
@@ -74,9 +76,9 @@ class PurposeGrid extends StatelessWidget {
             crossAxisSpacing: 8,
             childAspectRatio: 1.5,
           ),
-          itemCount: kPurposes.length,
+          itemCount: purposes.length,
           itemBuilder: (context, i) {
-            final p = kPurposes[i];
+            final p = purposes[i];
             final isSel = p.id == selected;
             return InkWell(
               onTap: () => onSelect(p.id),
