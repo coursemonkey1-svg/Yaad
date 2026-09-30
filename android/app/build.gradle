@@ -35,6 +35,7 @@ android {
             // default; it fails on this project's plugin set, so keep the
             // classic non-minified release build (revisit with proguard rules).
             minifyEnabled = false
+            shrinkResources = false
         }
     }
 }
