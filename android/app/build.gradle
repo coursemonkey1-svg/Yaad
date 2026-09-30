@@ -31,6 +31,10 @@ android {
             // Signing config is added by CI (Play App Signing) or locally.
             // For a local release build, create android/key.properties.
             signingConfig = signingConfigs.getByName("debug")
+            // The Flutter Gradle plugin now enables R8 for release builds by
+            // default; it fails on this project's plugin set, so keep the
+            // classic non-minified release build (revisit with proguard rules).
+            minifyEnabled = false
         }
     }
 }
