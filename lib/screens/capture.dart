@@ -6,6 +6,7 @@ import '../l10n/strings.dart';
 import '../main.dart';
 import '../models/transaction.dart';
 import '../services/capture_flow.dart';
+import '../services/ocr.dart';
 import '../theme.dart';
 import 'borrow.dart';
 import 'confirm.dart';

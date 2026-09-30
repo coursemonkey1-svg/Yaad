@@ -23,6 +23,9 @@ dependencies:
   # Speech-to-text dictation for notes (free, on-device where supported)
   speech_to_text: ^7.0.0
 
+  # Runtime permission requests (mic for voice notes, SMS for alerts)
+  permission_handler: ^11.3.1
+
   # Statement import (CSV / Excel / text) — free
   csv: ^6.0.0
   excel: ^4.0.6

@@ -189,6 +189,7 @@ class HomeScreen extends StatelessWidget {
       ),
     );
   }
+}
 
 class _Dash {
   final double monthSpent, monthReceived;

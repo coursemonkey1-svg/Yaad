@@ -241,31 +241,37 @@ class Strings {
     'whatForHint': 'e.g. lunch, emergency, rent',
     'udhaarNotSpending':
         'Udhaar is tracked separately — it never counts as spending.',
-    'theyPaidMe': 'They paid me',
     'theyPaidMeSub': 'Record money someone paid back to you.',
-    'iPaidThem': 'I paid them',
     'iPaidThemSub': 'Record money you paid back to someone.',
     'noOpenLent': 'No open loans — nothing to collect.',
     'noOpenBorrowed': 'No open borrowing — nothing to pay back.',
-    'remaining': 'Remaining',
     'repay': 'Repay',
-    'repaid': 'Paid back',
     'lendMore': 'Lend more',
     'borrowMore': 'Borrow more',
     'iLent': 'I lent',
-    'iBorrowed': 'I borrowed',
-    'settleUp': 'Settle up',
     'settleUpConfirm':
         'Record full repayment for every open balance with this person?',
-    'statementOfAccount': 'Statement of account',
     'generatedByYaad': 'Shared from Yaad',
-    'history': 'History',
-    'noUdhaarYet': 'No Udhaar with this person yet.',
+    'owesYouLine': '{name} owes you {amount}',
+    'youOweLine': 'You owe {name} {amount}',
     'noUdhaarYetTitle': 'No Udhaar yet',
     'noUdhaarYetBody':
         'Lend or borrow and it shows up here — tracked separately from spending.',
-    'searchPeople': 'Search people',
     'noMatch': 'No one matches that search.',
+    'yaadPro': 'Yaad Pro',
+    'proSubtitle':
+        'Yaad stays free forever for the essentials. Pro is a thank-you that unlocks power tools.',
+    'proF1': 'App lock with biometrics',
+    'proF2': 'Automatic encrypted backup',
+    'proF3': 'Statement of account & CSV export',
+    'proF4': 'Custom categories & accent themes',
+    'proF5': 'Support independent, tracker-free software',
+    'proBuy': 'Get Pro — {price} (one time)',
+    'proBuyNoPrice': 'Get Pro (one-time purchase)',
+    'proStoreUnavailable':
+        'Store unavailable right now. Please try again later.',
+    'proFinePrint':
+        'One-time purchase, yours forever. No subscription, no ads, your data never leaves this phone.',
   };
 
   static const _ur = <String, String>{
@@ -492,31 +498,37 @@ class Strings {
     'whatForHint': 'مثلاً کھانا، ایمرجنسی، کرایہ',
     'udhaarNotSpending':
         'ادھار الگ سے ٹریک ہوتا ہے — یہ خرچ میں شمار نہیں ہوتا۔',
-    'theyPaidMe': 'انہوں نے مجھے دیا',
     'theyPaidMeSub': 'کوئی آپ کو واپس کیے گئے پیسے درج کریں۔',
-    'iPaidThem': 'میں نے انہیں دیا',
     'iPaidThemSub': 'کسی کو واپس کیے گئے پیسے درج کریں۔',
     'noOpenLent': 'کوئی کھلا قرض نہیں — وصول کرنے کو کچھ نہیں۔',
     'noOpenBorrowed': 'کوئی کھلا ادھار نہیں — واپس کرنے کو کچھ نہیں۔',
-    'remaining': 'باقی',
     'repay': 'واپسی',
-    'repaid': 'واپس کیا',
     'lendMore': 'مزید ادھار دیں',
     'borrowMore': 'مزید ادھار لیں',
     'iLent': 'میں نے دیا',
-    'iBorrowed': 'میں نے لیا',
-    'settleUp': 'حساب چکا دیں',
     'settleUpConfirm':
         'اس شخص کے تمام کھلے حساب کی مکمل واپسی درج کریں؟',
-    'statementOfAccount': 'حساب کا گوشوارہ',
     'generatedByYaad': 'یاد سے بھیجا گیا',
-    'history': 'ریکارڈ',
-    'noUdhaarYet': 'اس شخص کے ساتھ ابھی کوئی ادھار نہیں۔',
+    'owesYouLine': '{name} کو آپ کے {amount} دینے ہیں',
+    'youOweLine': 'آپ کو {name} کے {amount} دینے ہیں',
     'noUdhaarYetTitle': 'ابھی کوئی ادھار نہیں',
     'noUdhaarYetBody':
         'ادھار دیں یا لیں اور یہ یہاں نظر آئے گا — خرچ سے الگ ٹریک ہوتا ہے۔',
-    'searchPeople': 'لوگ تلاش کریں',
     'noMatch': 'اس تلاش سے کوئی نہیں ملا۔',
+    'yaadPro': 'یاد Pro',
+    'proSubtitle':
+        'یاد بنیادی سہولتوں کے لیے ہمیشہ مفت رہے گی۔ Pro ایک شکریہ ہے جو طاقتور اوزار کھولتا ہے۔',
+    'proF1': 'بائیومیٹرک کے ساتھ ایپ لاک',
+    'proF2': 'خودکار خفیہ کردہ بیک اپ',
+    'proF3': 'حساب کا گوشوارہ اور CSV ایکسپورٹ',
+    'proF4': 'اپنی کیٹیگریز اور رنگ تھیمز',
+    'proF5': 'آزاد، ٹریکر فری سافٹ ویئر کی حمایت',
+    'proBuy': 'Pro حاصل کریں — {price} (ایک بار)',
+    'proBuyNoPrice': 'Pro حاصل کریں (ایک بار کی خریداری)',
+    'proStoreUnavailable':
+        'اسٹور ابھی دستیاب نہیں۔ براہ کرم بعد میں کوشش کریں۔',
+    'proFinePrint':
+        'ایک بار کی خریداری، ہمیشہ آپ کی۔ کوئی سبسکرپشن نہیں، کوئی اشتہار نہیں، آپ کا ڈیٹا اسی فون میں رہتا ہے۔',
   };
 
   /// Fails loudly in debug if a key is missing an Urdu translation.

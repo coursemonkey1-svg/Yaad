@@ -138,23 +138,31 @@ class _RepayScreenState extends State<RepayScreen> {
                         : s.get('noOpenBorrowed'),
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
-                for (final o in _open)
-                  RadioListTile<LendingRecord>(
-                    value: o.record,
-                    groupValue: _selected,
-                    onChanged: (r) => setState(() {
-                      _selected = r;
-                      _amountCtrl.text = o.remaining.toStringAsFixed(
-                          o.remaining.truncateToDouble() == o.remaining
-                              ? 0
-                              : 2);
-                    }),
-                    title: Text(
-                        '${appState.money(o.record.originalAmount)}'
-                        '${o.record.reason.isNotEmpty ? ' · ${o.record.reason}' : ''}'),
-                    subtitle: Text(
-                        '${s.get('remaining')}: ${appState.money(o.remaining)}'),
+                RadioGroup<LendingRecord>(
+                  groupValue: _selected,
+                  onChanged: (r) => setState(() {
+                    _selected = r;
+                    final o = _open.firstWhere(
+                        (e) => e.record.id == r!.id);
+                    _amountCtrl.text = o.remaining.toStringAsFixed(
+                        o.remaining.truncateToDouble() == o.remaining
+                            ? 0
+                            : 2);
+                  }),
+                  child: Column(
+                    children: [
+                      for (final o in _open)
+                        RadioListTile<LendingRecord>(
+                          value: o.record,
+                          title: Text(
+                              '${appState.money(o.record.originalAmount)}'
+                              '${o.record.reason.isNotEmpty ? ' · ${o.record.reason}' : ''}'),
+                          subtitle: Text(
+                              '${s.get('remaining')}: ${appState.money(o.remaining)}'),
+                        ),
+                    ],
                   ),
+                ),
                 const SizedBox(height: Gap.x2),
                 TextField(
                   controller: _amountCtrl,

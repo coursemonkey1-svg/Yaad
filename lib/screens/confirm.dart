@@ -168,7 +168,9 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         _noteCtrl.text = (_noteCtrl.text.isEmpty ? '' : '${_noteCtrl.text} ') +
             res.recognizedWords;
       },
-      localeId: appState.settings.language == 'ur' ? 'ur_PK' : 'en_PK',
+      listenOptions: stt.SpeechListenOptions(
+        localeId: appState.settings.language == 'ur' ? 'ur_PK' : 'en_PK',
+      ),
     );
     if (mounted) setState(() => _listening = false);
   }

@@ -31,6 +31,7 @@ class ProService {
   static bool canUseBackup(AppSettings s) => isUnlocked(s);
   static bool canUseExport(AppSettings s) => isUnlocked(s);
   static bool canUseCustomCategories(AppSettings s) => isUnlocked(s);
+  static bool canUseStatement(AppSettings s) => isUnlocked(s);
 
   /// The default teal accent is always free; others are Pro.
   static bool canUseAccent(AppSettings s, String accent) =>
