@@ -42,17 +42,26 @@ class AppState extends ChangeNotifier {
   void refresh() => notifyListeners();
 
   String money(double amount) {
-    // Simple grouping; full locale formatting via intl where needed.
-    final parts = amount.toStringAsFixed(0).split('');
-    final buf = StringBuffer();
-    int count = 0;
-    for (int i = parts.length - 1; i >= 0; i--) {
-      buf.write(parts[i]);
-      count++;
-      if (count % 3 == 0 && i != 0) buf.write(',');
+    // Pakistani digit grouping: 1,00,000 (lakh), 1,00,00,000 (crore).
+    // The way our users read big numbers — not the Western 100,000.
+    final neg = amount < 0;
+    final grouped = _groupPakistani(amount.abs().toStringAsFixed(0));
+    return '${settings.currency} ${neg ? '-' : ''}$grouped';
+  }
+
+  /// First group from the right is 3 digits, then groups of 2:
+  /// 2450 -> 2,450 · 100000 -> 1,00,000 · 10000000 -> 1,00,00,000.
+  static String _groupPakistani(String digits) {
+    if (digits.length <= 3) return digits;
+    final tail = digits.substring(digits.length - 3);
+    var head = digits.substring(0, digits.length - 3);
+    final groups = <String>[];
+    while (head.length > 2) {
+      groups.add(head.substring(head.length - 2));
+      head = head.substring(0, head.length - 2);
     }
-    final grouped = buf.toString().split('').reversed.join();
-    return '${settings.currency} $grouped';
+    if (head.isNotEmpty) groups.add(head);
+    return '${groups.reversed.join(',')},$tail';
   }
 
   // ---------- timezone-aware date helpers ----------

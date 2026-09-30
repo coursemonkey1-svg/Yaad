@@ -144,6 +144,22 @@ class Strings {
     'noTransactions': 'Nothing here yet.',
     'activityEmptySub': 'Tap Add to record your first transaction.',
     'all': 'All',
+    'filters': 'Filters',
+    'clearAll': 'Clear all',
+    'filtersCleared': 'Filters cleared',
+    'myPurposes': 'My purposes',
+    'newPurpose': 'New purpose',
+    'purposeNameHint': 'e.g. Zakat, Eid shopping',
+    'purposeAdded': 'Added "{name}"',
+    'purposeExists': 'That purpose already exists',
+    'deletePurposeTitle': 'Delete purpose?',
+    'deletePurposeBody':
+        'Delete "{name}"? Transactions using it will move to Other.',
+    'purposeDeleted': 'Deleted "{name}". Its transactions moved to Other.',
+    'longPressHint': 'Long-press a custom purpose to delete it',
+    'noCustomHint': 'Add your own from the Add screen.',
+    'noMatchFilters': 'No transactions match your filters.',
+    'tryClearing': 'Try clearing your filters.',
     'spentFilter': 'Spent',
     'receivedFilter': 'Received',
     'udhaarFilter': 'Udhaar',
@@ -273,6 +289,45 @@ class Strings {
     'importStatementSub': 'CSV, Excel, text or PDF — duplicates skipped',
     'backupSub': 'Full backup file — yours to keep',
     'exportCsvSub': 'Open in Excel or Google Sheets',
+    // CSV export: date-range choice
+    'exportRangeTitle': 'Pick a date range',
+    'rangeLast3Months': 'Last 3 months',
+    'rangeThisYear': 'This year',
+    'rangeAllTime': 'All time',
+    'rangeAllTimeSub': 'Everything you have ever recorded',
+    'rangeCustom': 'Custom range…',
+    'rangeFrom': 'From',
+    'rangeTo': 'To',
+    'export': 'Export',
+    'exportEmptyTitle': 'Nothing in this range',
+    'exportEmptyBody':
+        'No spending recorded for these dates — try a wider range.',
+    // CSV "type" column: machine value is kind.name, label is here.
+    'kind_spend': 'Spent',
+    'kind_receive': 'Received',
+    'kind_lendOut': 'Lent',
+    'kind_borrowIn': 'Borrowed',
+    'kind_repayOut': 'Paid back',
+    'kind_repayIn': 'Paid back',
+    'kind_transfer': 'Moved',
+    // CSV "purpose" column: machine value is the purpose id, label is here.
+    'purpose_groceries': 'Groceries',
+    'purpose_food': 'Food',
+    'purpose_transport': 'Transport',
+    'purpose_bills': 'Bills',
+    'purpose_mobile': 'Mobile',
+    'purpose_health': 'Health',
+    'purpose_education': 'Education',
+    'purpose_rent': 'Rent',
+    'purpose_shopping': 'Shopping',
+    'purpose_family': 'Family',
+    'purpose_personal': 'Personal',
+    'purpose_uncategorized': 'Other',
+    'purpose_salary': 'Salary',
+    'purpose_business': 'Business',
+    'purpose_gift': 'Gift',
+    'purpose_refund': 'Refund',
+    'purpose_other_in': 'Other',
     'deleteAllSub': 'Erases everything on this phone',
     'privacy': 'Privacy',
     'proActive': 'Pro is active on this phone — thank you.',
@@ -324,6 +379,14 @@ class Strings {
     'noUdhaarYetBody':
         'Lend or borrow and it shows up here — tracked separately from spending.',
     'noMatch': 'No one matches that search.',
+    'filterOweYouEmptyTitle': 'Nobody owes you right now',
+    'filterOweYouEmptyBody':
+        'When someone owes you money, they will show up here.',
+    'filterYouOweEmptyTitle': 'You owe nobody right now',
+    'filterYouOweEmptyBody':
+        'When you borrow money from someone, they will show up here.',
+    'clearFilter': 'Clear filter',
+    'doubleCheck': 'Double-check',
     'yaadPro': 'Yaad Pro',
     'proSubtitle':
         'Yaad stays free forever for the essentials. Pro is a thank-you that unlocks power tools.',
@@ -495,6 +558,23 @@ class Strings {
     'noTransactions': 'ابھی یہاں کچھ نہیں۔',
     'activityEmptySub': 'پہلا لین دین درج کرنے کے لیے شامل کریں دبائیں۔',
     'all': 'سب',
+    'filters': 'فلٹرز',
+    'clearAll': 'سب صاف کریں',
+    'filtersCleared': 'فلٹرز صاف کر دیے گئے',
+    'myPurposes': 'میرے مقاصد',
+    'newPurpose': 'نیا مقصد',
+    'purposeNameHint': 'مثلاً: زکوٰۃ، عید کی خریداری',
+    'purposeAdded': '"{name}" شامل ہو گیا',
+    'purposeExists': 'یہ مقصد پہلے سے موجود ہے',
+    'deletePurposeTitle': 'مقصد حذف کریں؟',
+    'deletePurposeBody':
+        '"{name}" حذف کریں؟ اس مقصد والے لین دین "دیگر" میں چلے جائیں گے۔',
+    'purposeDeleted':
+        '"{name}" حذف ہو گیا۔ اس کے لین دین "دیگر" میں چلے گئے۔',
+    'longPressHint': 'حذف کرنے کے لیے اپنے مقصد کو دبائے رکھیں',
+    'noCustomHint': 'ایڈ اسکرین سے اپنے مقاصد شامل کریں۔',
+    'noMatchFilters': 'ان فلٹرز سے کوئی لین دین نہیں ملا۔',
+    'tryClearing': 'فلٹرز صاف کر کے دوبارہ دیکھیں۔',
     'spentFilter': 'خرچ',
     'receivedFilter': 'وصول',
     'udhaarFilter': 'ادھار',
@@ -618,6 +698,45 @@ class Strings {
     'importStatementSub': 'CSV، Excel، ٹیکسٹ یا PDF — دہرائی گئی چھوڑ دیں',
     'backupSub': 'مکمل بیک اپ فائل — آپ کی اپنی',
     'exportCsvSub': 'Excel یا Google Sheets میں کھولیں',
+    // CSV export: date-range choice
+    'exportRangeTitle': 'تاریخ کی حد منتخب کریں',
+    'rangeLast3Months': 'پچھلے 3 مہینے',
+    'rangeThisYear': 'اس سال',
+    'rangeAllTime': 'تمام عرصہ',
+    'rangeAllTimeSub': 'آپ کا اب تک کا تمام ریکارڈ',
+    'rangeCustom': 'اپنی مرضی کی حد…',
+    'rangeFrom': 'سے',
+    'rangeTo': 'تک',
+    'export': 'نکالیں',
+    'exportEmptyTitle': 'اس مدت میں کچھ نہیں',
+    'exportEmptyBody':
+        'ان تاریخوں میں کوئی لین دین درج نہیں — وسیع مدت آزمائیں۔',
+    // CSV "type" column: machine value is kind.name, label is here.
+    'kind_spend': 'خرچ',
+    'kind_receive': 'وصول',
+    'kind_lendOut': 'ادھار دیا',
+    'kind_borrowIn': 'ادھار لیا',
+    'kind_repayOut': 'واپس ادا کیا',
+    'kind_repayIn': 'واپس وصول کیا',
+    'kind_transfer': 'منتقل کیا',
+    // CSV "purpose" column: machine value is the purpose id, label is here.
+    'purpose_groceries': 'گروسری',
+    'purpose_food': 'کھانا',
+    'purpose_transport': 'آمدورفت',
+    'purpose_bills': 'بل',
+    'purpose_mobile': 'موبائل',
+    'purpose_health': 'صحت',
+    'purpose_education': 'تعلیم',
+    'purpose_rent': 'کرایہ',
+    'purpose_shopping': 'خریداری',
+    'purpose_family': 'خاندان',
+    'purpose_personal': 'ذاتی',
+    'purpose_uncategorized': 'دیگر',
+    'purpose_salary': 'تنخواہ',
+    'purpose_business': 'کاروبار',
+    'purpose_gift': 'تحفہ',
+    'purpose_refund': 'واپسی',
+    'purpose_other_in': 'دیگر',
     'deleteAllSub': 'اس فون پر سب کچھ مٹا دیتا ہے',
     'privacy': 'رازداری',
     'proActive': 'اس فون پر پرو فعال ہے — شکریہ۔',
@@ -669,6 +788,14 @@ class Strings {
     'noUdhaarYetBody':
         'ادھار دیں یا لیں اور یہ یہاں نظر آئے گا — خرچ سے الگ ٹریک ہوتا ہے۔',
     'noMatch': 'اس تلاش سے کوئی نہیں ملا۔',
+    'filterOweYouEmptyTitle': 'ابھی آپ کو کچھ وصول نہیں کرنا ہے',
+    'filterOweYouEmptyBody':
+        'جب کوئی آپ کا مقروض ہوگا تو وہ یہاں نظر آئے گا۔',
+    'filterYouOweEmptyTitle': 'ابھی آپ کو کچھ ادا نہیں کرنا ہے',
+    'filterYouOweEmptyBody':
+        'جب آپ کسی کے مقروض ہوں گے تو وہ یہاں نظر آئے گا۔',
+    'clearFilter': 'فلٹر صاف کریں',
+    'doubleCheck': 'دوبارہ جانچیں',
     'yaadPro': 'یاد Pro',
     'proSubtitle':
         'یاد بنیادی سہولتوں کے لیے ہمیشہ مفت رہے گی۔ Pro ایک شکریہ ہے جو طاقتور اوزار کھولتا ہے۔',
@@ -721,6 +848,14 @@ class Strings {
     ];
     final list = code == 'ur' ? ur : en;
     return list[month - 1];
+  }
+
+  /// Non-asserting lookup: returns null when the key is missing in both
+  /// languages. For dynamic keys (e.g. custom purpose ids) where a
+  /// fallback is better than a debug assert.
+  String? find(String key) {
+    final map = code == 'ur' ? _ur : _en;
+    return map[key] ?? _en[key];
   }
 
   /// Fails loudly in debug if a key is missing an Urdu translation.
