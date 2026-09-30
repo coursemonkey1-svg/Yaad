@@ -48,6 +48,8 @@ dependencies:
 
   # Ids
   uuid: ^4.4.0
+  record: ^7.1.1
+  audioplayers: ^6.8.1
 
 dev_dependencies:
   flutter_test:
