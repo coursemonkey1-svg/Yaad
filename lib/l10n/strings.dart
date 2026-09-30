@@ -425,6 +425,11 @@ class Strings {
     'tourStepOf': 'Step {i} of {n}',
     'tourReplay': 'Take the tour',
     'tourReplaySub': 'A quick walkthrough of the app',
+    // Activity view toggle
+    'viewDetailed': 'Detailed',
+    'viewCompact': 'Compact',
+    'sourceBankAlert': 'Bank alert',
+    'sourceManual': 'Manual',
   };
 
   static const _ur = <String, String>{
@@ -834,6 +839,11 @@ class Strings {
     'tourStepOf': 'مرحلہ {i} از {n}',
     'tourReplay': 'ٹور دیکھیں',
     'tourReplaySub': 'ایپ کا مختصر تعارفی دورہ',
+    // Activity view toggle
+    'viewDetailed': 'تفصیلی',
+    'viewCompact': 'مختصر',
+    'sourceBankAlert': 'بینک الرٹ',
+    'sourceManual': 'دستی',
   };
 
   /// Localised 3-letter month abbreviation for summary/review titles.
