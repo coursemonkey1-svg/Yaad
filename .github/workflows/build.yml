@@ -24,6 +24,17 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          cache: true
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('android/gradle/wrapper/gradle-wrapper.properties', 'android/settings.gradle', 'android/app/build.gradle', 'android/build.gradle') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
       - name: Install dependencies
         run: flutter pub get
@@ -58,8 +69,12 @@ jobs:
           fi
           exit $CODE
 
+      # Test builds (commit message contains [skip-aab]) skip the Play Store
+      # bundle — the debug APK below is all a tester needs, and this saves
+      # a full second native compile (~5-8 min).
       - name: Build release App Bundle (for Play Store)
         id: build-aab
+        if: ${{ !contains(github.event.head_commit.message, '[skip-aab]') }}
         run: |
           set +e
           flutter build appbundle --release > "$RUNNER_TEMP/aab-build.log" 2>&1
