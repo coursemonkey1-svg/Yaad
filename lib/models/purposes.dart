@@ -48,6 +48,23 @@ const kReceiveSources = <Purpose>[
 /// Legacy alias: the full spend list (used by grids/filters).
 const kPurposes = kSpendPurposes;
 
+/// In-memory labels for user-created custom purposes. The fixed lists above
+/// are const, so custom purposes (stored in SQLite) register here at app
+/// start and after every create/delete — see [YaadDb.refreshCustomPurposeRegistry].
+/// This keeps purposeLabel()/purposeIcon() synchronous for every caller
+/// (txn rows, summaries, suggestions).
+final _customLabels = <String, String>{};
+
+/// Replaces the registered custom-purpose labels wholesale.
+void registerCustomPurposes(Map<String, String> labels) {
+  _customLabels
+    ..clear()
+    ..addAll(labels);
+}
+
+/// Ids the user created (deletable). The fixed list can never be deleted.
+bool isCustomPurpose(String id) => _customLabels.containsKey(id);
+
 String purposeLabel(String id) {
   for (final p in kSpendPurposes) {
     if (p.id == id) return p.label;
@@ -55,7 +72,7 @@ String purposeLabel(String id) {
   for (final p in kReceiveSources) {
     if (p.id == id) return p.label;
   }
-  return 'Other';
+  return _customLabels[id] ?? 'Other';
 }
 
 IconData purposeIcon(String id) {
@@ -65,6 +82,8 @@ IconData purposeIcon(String id) {
   for (final p in kReceiveSources) {
     if (p.id == id) return p.icon;
   }
+  // Custom purposes get the same tag icon their picker tile uses.
+  if (_customLabels.containsKey(id)) return Icons.tag;
   return Icons.help_outline;
 }
 
