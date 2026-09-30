@@ -433,6 +433,11 @@ class Strings {
         "Couldn't show the unlock screen — make sure your phone has a screen lock (PIN, pattern or fingerprint) set, then try again.",
     'lockNotSupported':
         "This phone can't use app lock — it has no screen lock. Set a screen lock in your phone's settings, then try again.",
+    // Activity view toggle
+    'viewDetailed': 'Detailed',
+    'viewCompact': 'Compact',
+    'sourceBankAlert': 'Bank alert',
+    'sourceManual': 'Manual',
   };
 
   static const _ur = <String, String>{
@@ -850,6 +855,11 @@ class Strings {
         'ان لاک اسکرین نہیں کھل سکی — پہلے اپنے فون میں اسکرین لاک (PIN، پیٹرن یا فنگر پرنٹ) لگائیں، پھر دوبارہ کوشش کریں۔',
     'lockNotSupported':
         'یہ فون ایپ لاک استعمال نہیں کر سکتا — اس میں اسکرین لاک نہیں ہے۔ فون کی ترتیبات میں اسکرین لاک لگائیں، پھر دوبارہ کوشش کریں۔',
+    // Activity view toggle
+    'viewDetailed': 'تفصیلی',
+    'viewCompact': 'مختصر',
+    'sourceBankAlert': 'بینک الرٹ',
+    'sourceManual': 'دستی',
   };
 
   /// Localised 3-letter month abbreviation for summary/review titles.

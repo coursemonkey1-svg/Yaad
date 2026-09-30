@@ -20,6 +20,11 @@ class AppSettings {
   final bool proUnlocked; // one-time yaad_pro purchase
   final bool appLockGrandfathered; // v1.0 users keep free app lock
   final String accentTheme; // "teal" free; others are Pro
+  final String activityView; // "detailed" | "compact" — Activity list density
+
+  /// Valid values for [activityView].
+  static const String viewDetailed = 'detailed';
+  static const String viewCompact = 'compact';
 
   const AppSettings({
     this.currency = 'PKR',
@@ -41,6 +46,7 @@ class AppSettings {
     this.proUnlocked = false,
     this.appLockGrandfathered = false,
     this.accentTheme = 'teal',
+    this.activityView = viewDetailed,
   });
 
   AppSettings copyWith({
@@ -63,6 +69,7 @@ class AppSettings {
     bool? proUnlocked,
     bool? appLockGrandfathered,
     String? accentTheme,
+    String? activityView,
   }) =>
       AppSettings(
         currency: currency ?? this.currency,
@@ -85,6 +92,7 @@ class AppSettings {
         appLockGrandfathered:
             appLockGrandfathered ?? this.appLockGrandfathered,
         accentTheme: accentTheme ?? this.accentTheme,
+        activityView: activityView ?? this.activityView,
       );
 
   Map<String, Object?> toMap() => {
@@ -107,9 +115,12 @@ class AppSettings {
         'proUnlocked': proUnlocked,
         'appLockGrandfathered': appLockGrandfathered,
         'accentTheme': accentTheme,
+        'activityView': activityView,
       };
 
-  factory AppSettings.fromMap(Map<String, Object?> m) => AppSettings(
+  factory AppSettings.fromMap(Map<String, Object?> m) {
+    final view = m['activityView'] as String? ?? viewDetailed;
+    return AppSettings(
         currency: m['currency'] as String? ?? 'PKR',
         timezone: m['timezone'] as String? ?? 'Asia/Karachi',
         language: m['language'] as String? ?? 'en',
@@ -129,5 +140,8 @@ class AppSettings {
         proUnlocked: m['proUnlocked'] as bool? ?? false,
         appLockGrandfathered: m['appLockGrandfathered'] as bool? ?? false,
         accentTheme: m['accentTheme'] as String? ?? 'teal',
+        activityView:
+            (view == viewCompact) ? viewCompact : viewDetailed,
       );
+  }
 }
