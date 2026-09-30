@@ -101,21 +101,31 @@ class MoneyText extends StatelessWidget {
   final FontWeight weight;
   final Color? color;
 
+  /// When true, the number counts up from 0 on first build and whenever
+  /// [amount] changes — one subtle motion, nothing gratuitous.
+  final bool animated;
+
   const MoneyText(this.amount,
       {super.key,
       this.size = 32,
       this.weight = FontWeight.bold,
-      this.color});
+      this.color,
+      this.animated = false});
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      appState.money(amount),
-      style: TextStyle(
-          fontSize: size,
-          fontWeight: weight,
-          color: color,
-          fontFeatures: const [FontFeature.tabularFigures()]),
+    final style = TextStyle(
+        fontSize: size,
+        fontWeight: weight,
+        color: color,
+        fontFeatures: const [FontFeature.tabularFigures()]);
+    if (!animated) return Text(appState.money(amount), style: style);
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(amount),
+      tween: Tween(begin: 0, end: amount),
+      duration: const Duration(milliseconds: 700),
+      curve: Curves.easeOutCubic,
+      builder: (_, v, __) => Text(appState.money(v), style: style),
     );
   }
 }

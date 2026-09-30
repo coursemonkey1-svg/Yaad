@@ -243,7 +243,7 @@ class _HeroCard extends StatelessWidget {
                     fontSize: 14)),
             const SizedBox(height: 4),
             MoneyText(amount,
-                size: 36, color: cs.onPrimary),
+                size: 36, color: cs.onPrimary, animated: true),
             const SizedBox(height: 4),
             Text(sub,
                 style: TextStyle(
