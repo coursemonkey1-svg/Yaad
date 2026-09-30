@@ -7,6 +7,7 @@ import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 
 import 'l10n/strings.dart';
+import 'app_lock_guard.dart';
 import 'data/db.dart';
 import 'services/app_state.dart';
 import 'services/capture_flow.dart';
@@ -96,48 +97,123 @@ class Gate extends StatefulWidget {
   State<Gate> createState() => _GateState();
 }
 
-class _GateState extends State<Gate> {
+class _GateState extends State<Gate> with WidgetsBindingObserver {
   bool _unlocked = false;
+  bool _firstBuild = true;
+
+  /// Plain-language reason shown on the lock screen when auth can't run.
+  /// Never unlocks silently: failing closed with a message beats open.
+  String? _authError;
+
+  final _guard = AppLockGuard();
+
+  bool get _appLockActive =>
+      appState.settings.appLock &&
+      ProService.canUseAppLock(appState.settings);
 
   @override
   void initState() {
     super.initState();
-    final s = appState.settings;
-    if (!s.appLock || !ProService.canUseAppLock(s)) {
-      _unlocked = true;
+    WidgetsBinding.instance.addObserver(this);
+    if (!_appLockActive) {
+      _unlocked = true; // no app lock: straight in
     } else {
       _auth();
     }
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _guard.onPaused();
+    } else if (state == AppLifecycleState.resumed) {
+      if (_guard.onResumed(
+          firstBuild: _firstBuild, appLockEnabled: _appLockActive)) {
+        setState(() {
+          _unlocked = false;
+          _authError = null;
+        });
+        _auth();
+      }
+    }
+  }
+
   Future<void> _auth() async {
+    final s = Strings(appState.settings.language);
+    final auth = LocalAuthentication();
     try {
-      final ok = await LocalAuthentication().authenticate(
-        localizedReason: 'Unlock Yaad',
+      // Detect the hopeless case upfront: no device screen lock means the
+      // system prompt can never succeed. Fail closed with a clear message.
+      if (!await auth.isDeviceSupported()) {
+        if (mounted) {
+          setState(() {
+            _unlocked = false;
+            _authError = s.get('lockNotSupported');
+          });
+        }
+        return;
+      }
+      final ok = await auth.authenticate(
+        localizedReason: s.get('lockUnlockYaad'),
         options: const AuthenticationOptions(biometricOnly: false),
       );
-      if (mounted) setState(() => _unlocked = ok);
+      if (mounted) {
+        setState(() {
+          _unlocked = ok;
+          _authError = null;
+        });
+      }
     } on PlatformException {
-      if (mounted) setState(() => _unlocked = true); // no biometrics enrolled
+      // The prompt couldn't be shown. Stay locked and explain what to do —
+      // never silently unlock on error.
+      if (mounted) {
+        setState(() {
+          _unlocked = false;
+          _authError = s.get('lockAuthFailed');
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_firstBuild) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _firstBuild = false);
+    }
     if (!_unlocked) {
+      final s = Strings(appState.settings.language);
       return Scaffold(
         body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.lock_outline, size: 48),
-              const SizedBox(height: 16),
-              const Text('Unlock Yaad',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              FilledButton(
-                  onPressed: _auth, child: const Text('Unlock')),
-            ],
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.lock_outline, size: 48),
+                const SizedBox(height: 16),
+                Text(s.get('lockUnlockYaad'),
+                    style: const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.bold)),
+                if (_authError != null) ...[
+                  const SizedBox(height: 12),
+                  Text(_authError!, textAlign: TextAlign.center),
+                ],
+                const SizedBox(height: 16),
+                FilledButton(
+                    onPressed: _auth,
+                    child: Text(s.get(_authError == null
+                        ? 'lockUnlockButton'
+                        : 'lockTryAgain'))),
+              ],
+            ),
           ),
         ),
       );
