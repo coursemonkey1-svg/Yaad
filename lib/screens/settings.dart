@@ -500,7 +500,7 @@ class SettingsScreen extends StatelessWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Restore failed: $e')));
+            .showSnackBar(SnackBar(content: Text(Strings(appState.settings.language).get('restoreFailed').replaceFirst('{e}', '$e'))));
       }
     }
   }
@@ -527,7 +527,7 @@ class SettingsScreen extends StatelessWidget {
       appState.refresh();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('All data deleted.')));
+            SnackBar(content: Text(Strings(appState.settings.language).get('allDataDeleted'))));
       }
     }
   }

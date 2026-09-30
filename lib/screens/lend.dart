@@ -71,7 +71,7 @@ class _LendScreenState extends State<LendScreen> {
     final name = _personCtrl.text.trim();
     if (amount <= 0 || name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Enter who and how much.')));
+          SnackBar(content: Text(Strings(appState.settings.language).get('whoAndHowMuch'))));
       return;
     }
     setState(() => _saving = true);

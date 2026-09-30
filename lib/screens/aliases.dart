@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/db.dart';
+import '../l10n/strings.dart';
 import '../main.dart';
 import '../models/alias.dart';
 
@@ -15,8 +16,9 @@ class AliasesScreen extends StatefulWidget {
 class _AliasesScreenState extends State<AliasesScreen> {
   @override
   Widget build(BuildContext context) {
+    final s = Strings(appState.settings.language);
     return Scaffold(
-      appBar: AppBar(title: const Text('My names for shops')),
+      appBar: AppBar(title: Text(s.get('aliasesTitle'))),
       body: FutureBuilder<List<MerchantAlias>>(
         future: YaadDb.allAliases(),
         builder: (context, snap) {
@@ -25,12 +27,21 @@ class _AliasesScreenState extends State<AliasesScreen> {
           }
           final items = snap.data!;
           if (items.isEmpty) {
-            return const Center(
+            return Center(
               child: Padding(
-                padding: EdgeInsets.all(32),
-                child: Text(
-                  'No saved names yet.\nWhen you add a note like "corner grocery near home" to a confusing bank label, it is remembered here and suggested next time.',
-                  textAlign: TextAlign.center,
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.label_outline, size: 56),
+                    const SizedBox(height: 12),
+                    Text(s.get('noAliasesYet'),
+                        style: const TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Text(s.get('aliasEmpty'),
+                        textAlign: TextAlign.center),
+                  ],
                 ),
               ),
             );
@@ -61,33 +72,35 @@ class _AliasesScreenState extends State<AliasesScreen> {
   }
 
   Future<void> _edit(BuildContext context, MerchantAlias? existing) async {
+    final s = Strings(appState.settings.language);
     final rawCtrl = TextEditingController(text: existing?.rawName ?? '');
     final aliasCtrl = TextEditingController(text: existing?.alias ?? '');
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text(existing == null ? 'Add your own name' : 'Edit name'),
+        title: Text(
+            existing == null ? s.get('addYourName') : s.get('editName')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
                 controller: rawCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'Bank label (exactly as shown)')),
+                decoration: InputDecoration(
+                    labelText: s.get('bankLabelExactly'))),
             const SizedBox(height: 8),
             TextField(
                 controller: aliasCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'Your name for it')),
+                decoration: InputDecoration(
+                    labelText: s.get('yourNameForIt'))),
           ],
         ),
         actions: [
           TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel')),
+              child: Text(s.get('cancel'))),
           FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Save')),
+              child: Text(s.get('save'))),
         ],
       ),
     );

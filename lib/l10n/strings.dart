@@ -221,8 +221,28 @@ class Strings {
     'onboarding3s':
         'Lend or borrow, log partial repayments, always see what’s left. Private: everything stays on this phone.',
     'getStarted': 'Get started',
+    'continueBtn': 'Continue',
     'skip': 'Skip',
     'somethingWrong': 'Something went wrong.',
+    'enterAmount': 'Please enter an amount.',
+    'whoAndHowMuch': 'Enter who and how much.',
+    'alreadyRecorded': 'Already recorded — skipped duplicate.',
+    'restoreFailed': 'Restore failed: {e}',
+    'allDataDeleted': 'All data deleted.',
+    'toReview': '{n} to review — tap one, pick a purpose, done.',
+    'noSpendingPeriod': 'No spending in this period.',
+    'week': 'Week',
+    'weekOf': 'Week of',
+    'month': 'Month',
+    'transactionsCount': '{n} transaction{s}',
+    'aliasesTitle': 'My names for shops',
+    'noAliasesYet': 'No saved names yet.',
+    'aliasEmpty':
+        'When you add a note like "corner grocery near home" to a confusing bank label, it is remembered here and suggested next time.',
+    'addYourName': 'Add your own name',
+    'editName': 'Edit name',
+    'bankLabelExactly': 'Bank label (exactly as shown)',
+    'yourNameForIt': 'Your name for it',
     'autoCapture': 'Automatic capture',
     'smsCapture': 'Bank SMS alerts',
     'smsCaptureSub':
@@ -514,8 +534,28 @@ class Strings {
     'onboarding3s':
         'ادھار دیں یا لیں، تھوڑی تھوڑی واپسی لکھیں، ہمیشہ دیکھیں کیا باقی ہے۔ نجی: سب کچھ اسی فون میں رہتا ہے۔',
     'getStarted': 'شروع کریں',
+    'continueBtn': 'آگے',
     'skip': 'چھوڑیں',
     'somethingWrong': 'کچھ گڑبڑ ہو گئی۔',
+    'enterAmount': 'براہ کرم رقم درج کریں۔',
+    'whoAndHowMuch': 'نام اور رقم درج کریں۔',
+    'alreadyRecorded': 'پہلے سے درج ہے — دہرائی چھوڑ دی۔',
+    'restoreFailed': 'بحالی ناکام: {e}',
+    'allDataDeleted': 'تمام ڈیٹا حذف کر دیا گیا۔',
+    'toReview': '{n} جانچ باقی — ایک پر ٹیپ کریں، مقصد چنیں، ہو گیا۔',
+    'noSpendingPeriod': 'اس مدت میں کوئی خرچ نہیں۔',
+    'week': 'ہفتہ',
+    'weekOf': 'ہفتہ شروع',
+    'month': 'مہینہ',
+    'transactionsCount': '{n} ٹرانزیکشنز',
+    'aliasesTitle': 'دکانوں کے میرے نام',
+    'noAliasesYet': 'ابھی کوئی نام محفوظ نہیں۔',
+    'aliasEmpty':
+        'جب آپ کسی الجھے ہوئے بینک لیبل پر "گھر کے پاس کریانہ سٹور" جیسا نوٹ لگاتے ہیں، تو وہ یہاں یاد رکھا جاتا ہے اور اگلی بار تجویز ہوتا ہے۔',
+    'addYourName': 'اپنا نام شامل کریں',
+    'editName': 'نام بدلیں',
+    'bankLabelExactly': 'بینک لیبل (جیسا دکھتا ہے)',
+    'yourNameForIt': 'اس کے لیے آپ کا نام',
     'autoCapture': 'خودکار کیپچر',
     'smsCapture': 'بینک SMS الرٹس',
     'smsCaptureSub':
@@ -602,6 +642,20 @@ class Strings {
     'proFinePrint':
         'ایک بار کی خریداری، ہمیشہ آپ کی۔ کوئی سبسکرپشن نہیں، کوئی اشتہار نہیں، آپ کا ڈیٹا اسی فون میں رہتا ہے۔',
   };
+
+  /// Localised 3-letter month abbreviation for summary/review titles.
+  String monthAbbr(int month) {
+    const en = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    const ur = [
+      'جنوری', 'فروری', 'مارچ', 'اپریل', 'مئی', 'جون',
+      'جولائی', 'اگست', 'ستمبر', 'اکتوبر', 'نومبر', 'دسمبر'
+    ];
+    final list = code == 'ur' ? ur : en;
+    return list[month - 1];
+  }
 
   /// Fails loudly in debug if a key is missing an Urdu translation.
   String get(String key) {

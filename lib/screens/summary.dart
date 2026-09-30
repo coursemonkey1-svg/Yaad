@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 import '../data/db.dart';
+import '../l10n/strings.dart';
 import '../main.dart';
 import '../models/purposes.dart';
 
@@ -37,15 +38,11 @@ class _SummaryScreenState extends State<SummaryScreen> {
     return (start.millisecondsSinceEpoch, end.millisecondsSinceEpoch);
   }
 
-  String _title() {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
-    if (_monthly) return '${months[_anchor.month - 1]} ${_anchor.year}';
+  String _title(Strings t) {
+    if (_monthly) return '${t.monthAbbr(_anchor.month)} ${_anchor.year}';
     final (s, _) = _range();
     final d = DateTime.fromMillisecondsSinceEpoch(s);
-    return 'Week of ${d.day} ${months[d.month - 1]}';
+    return '${t.get('weekOf')} ${d.day} ${t.monthAbbr(d.month)}';
   }
 
   void _shift(int dir) {
@@ -59,8 +56,9 @@ class _SummaryScreenState extends State<SummaryScreen> {
   @override
   Widget build(BuildContext context) {
     final (from, to) = _range();
+    final t = Strings(appState.settings.language);
     return Scaffold(
-      appBar: AppBar(title: const Text('Spending')),
+      appBar: AppBar(title: Text(t.get('spending'))),
       body: Column(
         children: [
           Padding(
@@ -72,7 +70,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
                     icon: const Icon(Icons.chevron_left)),
                 Expanded(
                     child: Center(
-                        child: Text(_title(),
+                        child: Text(_title(t),
                             style: const TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold)))),
@@ -83,9 +81,9 @@ class _SummaryScreenState extends State<SummaryScreen> {
             ),
           ),
           SegmentedButton<bool>(
-            segments: const [
-              ButtonSegment(value: false, label: Text('Week')),
-              ButtonSegment(value: true, label: Text('Month')),
+            segments: [
+              ButtonSegment(value: false, label: Text(t.get('week'))),
+              ButtonSegment(value: true, label: Text(t.get('month'))),
             ],
             selected: {_monthly},
             onSelectionChanged: (v) =>
@@ -102,8 +100,8 @@ class _SummaryScreenState extends State<SummaryScreen> {
                 }
                 final rows = snap.data!;
                 if (rows.isEmpty) {
-                  return const Center(
-                      child: Text('No spending in this period.'));
+                  return Center(
+                      child: Text(t.get('noSpendingPeriod')));
                 }
                 final max =
                     (rows.first['total'] as num).toDouble();
@@ -183,7 +181,11 @@ class _Bar extends StatelessWidget {
                         .surfaceContainerHighest,
                   ),
                 ),
-                Text('$count transaction${count == 1 ? '' : 's'}',
+                Text(
+                    Strings(appState.settings.language)
+                        .get('transactionsCount')
+                        .replaceFirst('{n}', '$count')
+                        .replaceFirst('{s}', count == 1 ? '' : 's'),
                     style:
                         Theme.of(context).textTheme.bodySmall),
               ],

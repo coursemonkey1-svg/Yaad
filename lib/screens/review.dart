@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/db.dart';
+import '../l10n/strings.dart';
 import '../main.dart';
 import '../models/transaction.dart';
 import 'home.dart';
@@ -12,10 +13,11 @@ class ReviewScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = Strings(appState.settings.language);
     return AnimatedBuilder(
       animation: appState,
       builder: (context, _) => Scaffold(
-        appBar: AppBar(title: const Text('Needs review')),
+        appBar: AppBar(title: Text(s.get('needsReview'))),
         body: FutureBuilder<List<YaadTransaction>>(
           future: YaadDb.txns(status: TxnStatus.needsReview.name, limit: 500),
           builder: (context, snap) {
@@ -24,17 +26,17 @@ class ReviewScreen extends StatelessWidget {
             }
             final items = snap.data!;
             if (items.isEmpty) {
-              return const Center(
+              return Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.check_circle_outline,
+                    const Icon(Icons.check_circle_outline,
                         size: 64, color: Colors.green),
-                    SizedBox(height: 12),
-                    Text('All caught up!',
-                        style: TextStyle(
+                    const SizedBox(height: 12),
+                    Text(s.get('allCaughtUp'),
+                        style: const TextStyle(
                             fontSize: 18, fontWeight: FontWeight.bold)),
-                    Text('Every transaction has its story.'),
+                    Text(s.get('everyStory')),
                   ],
                 ),
               );
@@ -49,8 +51,9 @@ class ReviewScreen extends StatelessWidget {
                 Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                      '${items.length} to review — tap one, pick a purpose, done.'),
+                  child: Text(s
+                      .get('toReview')
+                      .replaceFirst('{n}', '${items.length}')),
                 ),
                 Expanded(
                   child: ListView.builder(

@@ -80,7 +80,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       }
                     },
                     child: Text(_i < pages.length - 1
-                        ? '→'
+                        ? s.get('continueBtn')
                         : s.get('getStarted')),
                   ),
                 ],

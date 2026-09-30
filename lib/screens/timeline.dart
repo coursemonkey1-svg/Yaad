@@ -63,19 +63,19 @@ class _TimelineScreenState extends State<TimelineScreen> {
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Row(
                 children: [
-                  _chip('All', _purpose == null && _direction == null,
+                  _chip(s.get('all'), _purpose == null && _direction == null,
                       () => setState(() {
                             _purpose = null;
                             _direction = null;
                           })),
-                  _chip('Money out', _direction == TxnDirection.out,
+                  _chip(s.get('moneyOut'), _direction == TxnDirection.out,
                       () => setState(() {
                             _direction = _direction == TxnDirection.out
                                 ? null
                                 : TxnDirection.out;
                             _purpose = null;
                           })),
-                  _chip('Money in', _direction == TxnDirection.incoming,
+                  _chip(s.get('moneyIn'), _direction == TxnDirection.incoming,
                       () => setState(() {
                             _direction =
                                 _direction == TxnDirection.incoming

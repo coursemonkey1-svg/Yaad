@@ -241,7 +241,15 @@ class StatementImporter {
         double amount = 0;
         var isOut = true;
         if (amountCol >= 0) {
-          amount = _num(cell(amountCol));
+          // Single amount column: sign decides direction.
+          final raw = _num(cell(amountCol));
+          if (raw < 0) {
+            amount = -raw;
+            isOut = true;
+          } else {
+            amount = raw;
+            isOut = false;
+          }
         } else {
           final dr = debitCol >= 0 ? _num(cell(debitCol)) : 0.0;
           final cr = creditCol >= 0 ? _num(cell(creditCol)) : 0.0;

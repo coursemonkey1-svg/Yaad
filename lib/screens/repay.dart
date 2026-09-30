@@ -77,7 +77,7 @@ class _RepayScreenState extends State<RepayScreen> {
         double.tryParse(_amountCtrl.text.replaceAll(',', '')) ?? 0;
     if (amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Enter an amount.')));
+          SnackBar(content: Text(Strings(appState.settings.language).get('enterAmount'))));
       return;
     }
     setState(() => _saving = true);

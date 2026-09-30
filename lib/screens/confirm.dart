@@ -181,7 +181,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         double.tryParse(_amountCtrl.text.replaceAll(',', '')) ?? 0;
     if (amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter an amount.')));
+          SnackBar(content: Text(Strings(appState.settings.language).get('enterAmount'))));
       return;
     }
     setState(() => _saving = true);
@@ -218,8 +218,8 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
           date: _date,
         );
         if (dup != null && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Already recorded — skipped duplicate.')));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(Strings(appState.settings.language).get('alreadyRecorded'))));
           setState(() => _saving = false);
           Navigator.of(context).pop();
           return;
