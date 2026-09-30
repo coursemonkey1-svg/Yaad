@@ -41,7 +41,21 @@ jobs:
         run: flutter analyze
 
       - name: Build debug APK (for direct install / testing)
-        run: flutter build apk --debug
+        run: |
+          set +e
+          flutter build apk --debug > "$RUNNER_TEMP/apk-build.log" 2>&1
+          CODE=$?
+          set -e
+          if [ $CODE -ne 0 ]; then
+            SECTION=$(awk '/FAILURE: Build failed with an exception/,/\* Try:/' "$RUNNER_TEMP/apk-build.log" | head -n 25)
+            if [ -z "$SECTION" ]; then
+              SECTION=$(tail -n 12 "$RUNNER_TEMP/apk-build.log")
+            fi
+            echo "$SECTION" | sed 's/%/%25/g; s/\r/%0D/g' | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error::$line"
+            done
+          fi
+          exit $CODE
 
       - name: Build release App Bundle (for Play Store)
         run: flutter build appbundle --release
