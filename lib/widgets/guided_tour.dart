@@ -91,7 +91,14 @@ class _TourPageState extends State<_TourPage> {
   @override
   void initState() {
     super.initState();
-    widget.onStep?.call(0);
+    // Announce the initial step only after this route has finished
+    // mounting. Calling onStep synchronously here would mark the host
+    // (e.g. MainShell's tab switch) dirty while the framework is still
+    // building this route — a setState-during-build red screen, exactly
+    // what build 15 hit on device.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.onStep?.call(0);
+    });
   }
 
   /// Resolve the current target's screen rect. Guarded by equality so it
