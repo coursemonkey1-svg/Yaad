@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../data/db.dart';
+import '../l10n/strings.dart';
 import '../models/transaction.dart';
 import '../models/person.dart';
 import '../models/lending.dart';
@@ -15,6 +16,11 @@ import '../models/alias.dart';
 /// no account, no cloud upload. Free forever.
 class BackupService {
   /// Full backup as JSON. Returns the file path.
+  ///
+  /// Covers every user-data table. The internal `audit` table is
+  /// deliberately excluded: it is a device-local debug trail, not user
+  /// data, and it bloats the file and the restore. [importJson] never
+  /// reads it, so older backups that still contain `audit` restore fine.
   Future<String> exportJson() async {
     final db = await YaadDb.db;
     final data = <String, Object?>{};
@@ -24,7 +30,6 @@ class BackupService {
       'lending',
       'repayments',
       'aliases',
-      'audit'
     ]) {
       data[t] = await db.query(t);
     }
@@ -39,21 +44,57 @@ class BackupService {
   }
 
   /// Transactions as CSV (opens in Excel / Google Sheets).
-  Future<String> exportCsv() async {
-    final txns = await YaadDb.txns(limit: 100000);
+  ///
+  /// [from]/[to] bound the range (inclusive, whole days); null means
+  /// unbounded ("All time"). [fileLabel] names the file, e.g.
+  /// `yaad-transactions-2026-09.csv`. [language] localises the
+  /// human-readable label columns.
+  Future<CsvExport> exportCsv({
+    DateTime? from,
+    DateTime? to,
+    String fileLabel = 'all',
+    String language = 'en',
+  }) async {
+    final s = Strings(language);
+    int? fromMs, toMs;
+    if (from != null) {
+      fromMs =
+          DateTime(from.year, from.month, from.day).millisecondsSinceEpoch;
+    }
+    if (to != null) {
+      toMs = DateTime(to.year, to.month, to.day, 23, 59, 59, 999)
+          .millisecondsSinceEpoch;
+    }
+    final txns =
+        await YaadDb.txns(limit: 100000, fromMs: fromMs, toMs: toMs);
+
+    // Friendly merchant names the user has taught the app.
+    final db = await YaadDb.db;
+    final aliasRows = await db.query('aliases', columns: ['id', 'alias']);
+    final aliases = {
+      for (final r in aliasRows)
+        (r['id'] as String): (r['alias'] as String? ?? ''),
+    };
+
+    // Label columns read in the user's language; the machine columns
+    // (type, purpose) stay stable for filters and pivot tables.
+    String label(String key, String fallback) => s.find(key) ?? fallback;
+    String esc(String v) => '"${v.replaceAll('"', '""')}"';
+
     final buf = StringBuffer(
-        'date,amount,currency,direction,merchant,purpose,note,tags,reference,status\n');
+        'date,amount,currency,type,type_label,merchant,merchant_name,'
+        'purpose,purpose_label,note,tags,reference,status\n');
     for (final t in txns) {
-      String esc(String s) => '"${s.replaceAll('"', '""')}"';
       buf.writeln([
-        DateTime.fromMillisecondsSinceEpoch(
-                t.dateTime.millisecondsSinceEpoch)
-            .toIso8601String(),
+        t.dateTime.toIso8601String(),
         t.amount,
         t.currency,
-        t.direction.name,
+        t.kind.name,
+        esc(label('kind_${t.kind.name}', t.kind.name)),
         esc(t.rawMerchant),
-        esc(t.purpose),
+        esc(t.aliasId == null ? '' : (aliases[t.aliasId] ?? '')),
+        t.purpose,
+        esc(label('purpose_${t.purpose}', t.purpose)),
         esc(t.note),
         esc(t.tags.join(';')),
         esc(t.bankReference ?? ''),
@@ -61,10 +102,10 @@ class BackupService {
       ].join(','));
     }
     final dir = await getApplicationDocumentsDirectory();
-    final path =
-        p.join(dir.path, 'yaad-transactions-${DateTime.now().millisecondsSinceEpoch}.csv');
+    final safeLabel = fileLabel.replaceAll(RegExp(r'[^0-9A-Za-z_-]'), '');
+    final path = p.join(dir.path, 'yaad-transactions-$safeLabel.csv');
     await File(path).writeAsString(buf.toString());
-    return path;
+    return CsvExport(path: path, count: txns.length);
   }
 
   /// Restores from a JSON backup file. Skips records that already exist.
@@ -104,6 +145,13 @@ class BackupService {
   Future<void> shareFile(String path, {String subject = 'Yaad export'}) async {
     await Share.shareXFiles([XFile(path)], subject: subject);
   }
+}
+
+/// Result of a CSV export: where the file landed, and how many rows it holds.
+class CsvExport {
+  final String path;
+  final int count;
+  const CsvExport({required this.path, required this.count});
 }
 
 class ImportSummary {

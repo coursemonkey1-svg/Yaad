@@ -7,6 +7,7 @@ import '../l10n/strings.dart';
 import '../main.dart';
 import '../models/settings.dart';
 import '../services/backup.dart';
+import '../widgets/export_range_dialog.dart';
 import '../services/importer.dart';
 import '../services/pro.dart';
 import '../services/sms_capture.dart';
@@ -486,11 +487,35 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<void> _exportCsv(BuildContext context) async {
-    final path = await BackupService().exportCsv();
-    if (context.mounted) {
-      await BackupService()
-          .shareFile(path, subject: 'Yaad transactions CSV');
+    final s = Strings(appState.settings.language);
+    final range = await showExportRangeDialog(context);
+    if (range == null || !context.mounted) return;
+    final res = await BackupService().exportCsv(
+      from: range.from,
+      to: range.to,
+      fileLabel: range.fileLabel,
+      language: appState.settings.language,
+    );
+    if (!context.mounted) return;
+    if (res.count == 0) {
+      // Instructive, not silent: the range had nothing to export.
+      await showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Text(s.get('exportEmptyTitle')),
+          content: Text(s.get('exportEmptyBody')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(s.get('ok')),
+            ),
+          ],
+        ),
+      );
+      return;
     }
+    await BackupService()
+        .shareFile(res.path, subject: 'Yaad transactions CSV');
   }
 
   Future<void> _restore(BuildContext context) async {
