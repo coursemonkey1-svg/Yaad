@@ -18,6 +18,7 @@ class _TourHarnessState extends State<_TourHarness> {
   late AppSettings settings = widget.initial;
   final _targetKey = GlobalKey();
   var tourShown = false;
+  final stepCalls = <int>[];
 
   @override
   void initState() {
@@ -41,6 +42,14 @@ class _TourHarnessState extends State<_TourHarness> {
             tab: 0, titleKey: 'tourHomeTitle', bodyKey: 'tourHomeBody'),
       ],
       strings: const Strings('en'),
+      // Mimics MainShell: every step switches the tab via setState on the
+      // host. If the tour announced step 0 synchronously during the route
+      // mount, this setState would throw setState-during-build (build 15
+      // red screen on device).
+      onStep: (i) {
+        stepCalls.add(i);
+        setState(() {});
+      },
       onFinish: () =>
           setState(() => settings = settings.copyWith(tourSeen: true)),
     );
@@ -98,6 +107,23 @@ void main() {
       expect(find.text('Skip'), findsOneWidget);
       expect(find.text('Next'), findsOneWidget);
       expect(find.text('Step 1 of 2'), findsOneWidget);
+    });
+
+    testWidgets(
+        'announcing the first step never throws setState-during-build',
+        (tester) async {
+      // Regression test for the build-15 device red screen: the tour used
+      // to call onStep(0) synchronously from the route's initState, so the
+      // host's setState (tab switch) fired while the framework was still
+      // building the route. Any FlutterError during pump fails the test.
+      await _pumpHarness(
+          tester, const AppSettings(onboardingDone: true));
+      await tester.pumpAndSettle();
+
+      expect(_state(tester).tourShown, isTrue);
+      expect(find.text('Start here: Add'), findsOneWidget);
+      // Step 0 was still announced to the host, just deferred one frame.
+      expect(_state(tester).stepCalls, contains(0));
     });
 
     testWidgets('skip marks tourSeen and removes the overlay',
