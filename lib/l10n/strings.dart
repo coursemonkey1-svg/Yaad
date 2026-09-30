@@ -153,8 +153,8 @@ class Strings {
     // Import
     'importStatement': 'Import statement',
     'importPreview': 'Review import',
-    'importN': 'Import',
-    'importDone': 'Import complete',
+    'importN': 'Import {n} selected',
+    'importDone': 'Imported {imported}, skipped {duplicates} duplicates, {failed} failed.',
     'duplicateFound': 'Already recorded — skipped duplicate',
     'duplicatesSkipped': 'duplicates skipped',
     'transferDetected':
@@ -223,6 +223,42 @@ class Strings {
     'getStarted': 'Get started',
     'skip': 'Skip',
     'somethingWrong': 'Something went wrong.',
+    'autoCapture': 'Automatic capture',
+    'smsCapture': 'Bank SMS alerts',
+    'smsCaptureSub':
+        'Read bank SMS on this phone and turn them into transactions. Optional — always off unless you say so.',
+    'smsRationaleTitle': 'Turn on bank SMS capture?',
+    'smsRationaleBody':
+        'Yaad can read your bank’s transaction SMS on this phone and turn them into entries — you confirm each one before it’s saved. Nothing leaves this phone; Yaad never sends your SMS anywhere. You can turn this off anytime in Settings.',
+    'notifCapture': 'Bank notifications',
+    'notifCaptureSub':
+        'Catch transaction notifications from your banking apps on this phone. Optional — off unless you say so.',
+    'notifRationaleTitle': 'Turn on bank notification capture?',
+    'notifRationaleBody':
+        'Yaad can catch transaction notifications from your banking apps and turn them into entries — you confirm each one before it’s saved. Android needs you to grant notification access in system settings; Yaad only watches banking-app notifications, and nothing leaves this phone.',
+    'smsPermissionDenied':
+        'SMS permission was not granted — bank SMS capture stays off. You can try again anytime.',
+    'notifAccessNeeded':
+        'Notification access is still off. Turn it on to capture bank notifications.',
+    'importStatementSub': 'CSV, Excel, text or PDF — duplicates skipped',
+    'backupSub': 'Full backup file — yours to keep',
+    'exportCsvSub': 'Open in Excel or Google Sheets',
+    'deleteAllSub': 'Erases everything on this phone',
+    'privacy': 'Privacy',
+    'proActive': 'Pro is active on this phone — thank you.',
+    'proGet': 'Unlock PDF statements, backups, extras.',
+    'importReading': 'Reading your statement…',
+    'pdfNoTextTitle': 'Couldn’t read this PDF',
+    'pdfNoTextBody':
+        'Yaad couldn’t find any text in this PDF — it’s likely a scanned statement (photos of pages, not real text). Nothing was imported; your data is safe.\n\nTo import from Meezan:\n1. Open the Meezan app → Accounts → choose your account.\n2. Open Statement / Transaction history and pick your dates.\n3. Tap Download or Share → choose CSV (or Excel).\n4. Back in Yaad: Settings → Import statement → pick that file.\n\nCSV and Excel always import cleanly.',
+    'gotIt': 'Got it',
+    'importPreviewTitle': 'Import preview',
+    'transferPairHint':
+        '{n} rows look like transfers between your own accounts — they won’t count as spending.',
+    'markTransfers': 'Mark as transfers',
+    'importNoRows': 'No transactions found in this file.',
+    'duplicate': 'duplicate',
+    'importNotes': 'Import notes',
     'scanReceipt': 'Scan receipt',
     'review': 'Review',
     'from': 'From',
@@ -414,8 +450,8 @@ class Strings {
     'categoryName': 'مد کا نام',
     'importStatement': 'اسٹیٹمنٹ درآمد کریں',
     'importPreview': 'درآمد دیکھ لیں',
-    'importN': 'درآمد کریں',
-    'importDone': 'درآمد مکمل۔',
+    'importN': '{n} منتخب درآمد کریں',
+    'importDone': '{imported} درآمد ہوئیں، {duplicates} دہرائی گئی چھوڑ دیں، {failed} ناکام۔',
     'duplicateFound': 'پہلے سے درج ہے — نقل چھوڑ دی',
     'duplicatesSkipped': 'نقل چھوڑ دیں',
     'transferDetected':
@@ -480,6 +516,42 @@ class Strings {
     'getStarted': 'شروع کریں',
     'skip': 'چھوڑیں',
     'somethingWrong': 'کچھ گڑبڑ ہو گئی۔',
+    'autoCapture': 'خودکار کیپچر',
+    'smsCapture': 'بینک SMS الرٹس',
+    'smsCaptureSub':
+        'اس فون پر بینک SMS پڑھیں اور انہیں ٹرانزیکشنز میں بدلیں۔ اختیاری — آپ کی اجازت کے بغیر ہمیشہ بند۔',
+    'smsRationaleTitle': 'بینک SMS کیپچر چالو کریں؟',
+    'smsRationaleBody':
+        'یاد اس فون پر آپ کے بینک کے ٹرانزیکشن SMS پڑھ کر اندراج بنا سکتی ہے — ہر ایک آپ کی تصدیق کے بعد محفوظ ہوتا ہے۔ کچھ بھی اس فون سے باہر نہیں جاتا؛ یاد آپ کے SMS کہیں نہیں بھیجتی۔ آپ یہ کسی بھی وقت سیٹنگز سے بند کر سکتے ہیں۔',
+    'notifCapture': 'بینک نوٹیفیکیشنز',
+    'notifCaptureSub':
+        'اس فون پر بینکنگ ایپس کی ٹرانزیکشن نوٹیفیکیشنز پکڑیں۔ اختیاری — اجازت کے بغیر بند۔',
+    'notifRationaleTitle': 'بینک نوٹیفیکیشن کیپچر چالو کریں؟',
+    'notifRationaleBody':
+        'یاد آپ کی بینکنگ ایپس کی ٹرانزیکشن نوٹیفیکیشنز پکڑ کر اندراج بنا سکتی ہے — ہر ایک آپ کی تصدیق کے بعد محفوظ ہوتا ہے۔ اینڈرائیڈ کو سسٹم سیٹنگز میں نوٹیفیکیشن رسائی چاہیے؛ یاد صرف بینکنگ ایپس کی نوٹیفیکیشنز دیکھتی ہے، اور کچھ بھی اس فون سے باہر نہیں جاتا۔',
+    'smsPermissionDenied':
+        'SMS کی اجازت نہیں ملی — بینک SMS کیپچر بند رہے گا۔ آپ کسی بھی وقت دوبارہ کوشش کر سکتے ہیں۔',
+    'notifAccessNeeded':
+        'نوٹیفیکیشن رسائی ابھی بند ہے۔ بینک نوٹیفیکیشنز پکڑنے کے لیے اسے چالو کریں۔',
+    'importStatementSub': 'CSV، Excel، ٹیکسٹ یا PDF — دہرائی گئی چھوڑ دیں',
+    'backupSub': 'مکمل بیک اپ فائل — آپ کی اپنی',
+    'exportCsvSub': 'Excel یا Google Sheets میں کھولیں',
+    'deleteAllSub': 'اس فون پر سب کچھ مٹا دیتا ہے',
+    'privacy': 'رازداری',
+    'proActive': 'اس فون پر پرو فعال ہے — شکریہ۔',
+    'proGet': 'PDF اسٹیٹمنٹس، بیک اپ، اضافی فیچرز کھولیں۔',
+    'importReading': 'آپ کی اسٹیٹمنٹ پڑھی جا رہی ہے…',
+    'pdfNoTextTitle': 'یہ PDF پڑھی نہیں جا سکی',
+    'pdfNoTextBody':
+        'یاد کو اس PDF میں کوئی متن نہیں ملا — یہ شاید اسکین شدہ اسٹیٹمنٹ ہے (صفحات کی تصویریں، اصل متن نہیں)۔ کچھ درآمد نہیں ہوا؛ آپ کا ڈیٹا محفوظ ہے۔\n\nمیزان سے درآمد کے لیے:\n1. میزان ایپ کھولیں → اکاؤنٹس → اپنا اکاؤنٹ چنیں۔\n2. اسٹیٹمنٹ / ٹرانزیکشن ہسٹری کھولیں اور تاریخیں چنیں۔\n3. ڈاؤن لوڈ یا شیئر دبائیں → CSV (یا Excel) چنیں۔\n4. واپس یاد میں: سیٹنگز → اسٹیٹمنٹ درآمد کریں → وہ فائل چنیں۔\n\nCSV اور Excel ہمیشہ صاف درآمد ہوتے ہیں۔',
+    'gotIt': 'سمجھ گیا',
+    'importPreviewTitle': 'درآمد کا پیش نظارہ',
+    'transferPairHint':
+        '{n} قطاریں آپ کے اپنے اکاؤنٹس کے درمیان منتقلی لگتی ہیں — یہ خرچ میں شمار نہیں ہوں گی۔',
+    'markTransfers': 'منتقلی قرار دیں',
+    'importNoRows': 'اس فائل میں کوئی ٹرانزیکشن نہیں ملی۔',
+    'duplicate': 'دہرائی گئی',
+    'importNotes': 'درآمدی نوٹس',
     'scanReceipt': 'رسید اسکین کریں',
     'review': 'جائزہ',
     'from': 'کس سے',

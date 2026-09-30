@@ -1,12 +1,19 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../data/db.dart';
 import '../l10n/strings.dart';
 import '../main.dart';
+import '../models/settings.dart';
 import '../services/backup.dart';
 import '../services/importer.dart';
+import '../services/pro.dart';
+import '../services/sms_capture.dart';
+import '../theme.dart';
 import 'aliases.dart';
+import 'import_preview.dart';
+import 'pro.dart';
 
 /// Settings: make Yaad yours. Defaults are Pakistan/PKR;
 /// everything is adjustable. All data stays on this phone.
@@ -42,6 +49,14 @@ class SettingsScreen extends StatelessWidget {
         7: 'Sunday',
       }[d]!;
 
+  static const _accents = ['teal', 'amber', 'violet', 'rose'];
+  static String _accentLabel(String a) => const {
+        'teal': 'Teal',
+        'amber': 'Amber',
+        'violet': 'Violet',
+        'rose': 'Rose',
+      }[a]!;
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -52,9 +67,9 @@ class SettingsScreen extends StatelessWidget {
         return Scaffold(
           appBar: AppBar(title: Text(t.get('settings'))),
           body: ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(Gap.x2),
             children: [
-              _section('You & your money'),
+              _section(t.get('youAndMoney')),
               _tile(
                 context,
                 icon: Icons.attach_money,
@@ -88,6 +103,13 @@ class SettingsScreen extends StatelessWidget {
                       'light': 'Light',
                       'dark': 'Dark'
                     }),
+              ),
+              _tile(
+                context,
+                icon: Icons.palette_outlined,
+                title: t.get('accentTheme'),
+                value: _accentLabel(s.accentTheme),
+                onTap: () => _pickAccent(context, s),
               ),
               _tile(
                 context,
@@ -144,9 +166,18 @@ class SettingsScreen extends StatelessWidget {
               SwitchListTile(
                 secondary: const Icon(Icons.lock_outline),
                 title: Text(t.get('appLock')),
-                value: s.appLock,
-                onChanged: (v) =>
-                    appState.update(s.copyWith(appLock: v)),
+                subtitle: !_canUseAppLock(s)
+                    ? Text(t.get('proFeature'))
+                    : null,
+                value: s.appLock && _canUseAppLock(s),
+                onChanged: (v) {
+                  if (v && !_canUseAppLock(s)) {
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const ProScreen()));
+                    return;
+                  }
+                  appState.update(s.copyWith(appLock: v));
+                },
               ),
               SwitchListTile(
                 secondary: const Icon(Icons.auto_awesome_outlined),
@@ -156,10 +187,12 @@ class SettingsScreen extends StatelessWidget {
                 onChanged: (v) => appState.update(
                     s.copyWith(smartSuggestions: v)),
               ),
-              _section('Names & imports'),
+              _section(t.get('autoCapture')),
+              const _CaptureSection(),
+              _section(t.get('namesAndImports')),
               ListTile(
                 leading: const Icon(Icons.label_outline),
-                title: const Text('My names for shops'),
+                title: Text(t.get('myNames')),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => const AliasesScreen())),
@@ -167,23 +200,25 @@ class SettingsScreen extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.upload_file_outlined),
                 title: Text(t.get('importStatement')),
-                subtitle:
-                    const Text('CSV, Excel or text — duplicates skipped'),
+                subtitle: Text(t.get('importStatementSub')),
                 onTap: () => _importStatement(context),
               ),
-              _section('Your data'),
+              _section(t.get('yourData')),
               ListTile(
                 leading: const Icon(Icons.backup_outlined),
                 title: Text(t.get('backup')),
-                subtitle:
-                    const Text('Full backup file — yours to keep'),
-                onTap: () => _backup(context),
+                subtitle: Text(_proSuffix(t, t.get('backupSub'),
+                    ProService.canUseBackup(s))),
+                onTap: () => _gate(context,
+                    ProService.canUseBackup(s), () => _backup(context)),
               ),
               ListTile(
                 leading: const Icon(Icons.table_chart_outlined),
                 title: Text(t.get('exportCsv')),
-                subtitle: const Text('Open in Excel or Google Sheets'),
-                onTap: () => _exportCsv(context),
+                subtitle: Text(_proSuffix(t, t.get('exportCsvSub'),
+                    ProService.canUseExport(s))),
+                onTap: () => _gate(context,
+                    ProService.canUseExport(s), () => _exportCsv(context)),
               ),
               ListTile(
                 leading: const Icon(Icons.restore_outlined),
@@ -196,28 +231,55 @@ class SettingsScreen extends StatelessWidget {
                 title: Text(t.get('deleteAll'),
                     style: TextStyle(
                         color: Theme.of(context).colorScheme.error)),
-                subtitle:
-                    const Text('Erases everything on this phone'),
+                subtitle: Text(t.get('deleteAllSub')),
                 onTap: () => _wipe(context),
               ),
-              _section('About'),
-              const ListTile(
-                leading: Icon(Icons.privacy_tip_outlined),
-                title: Text('Privacy'),
-                subtitle: Text(
-                    'Yaad stores everything on this phone. No account, no servers, no ads, no tracking. Free forever.'),
+              if (s.billingEnabled) ...[
+                _section(t.get('yaadPro')),
+                ListTile(
+                  leading: const Icon(Icons.star_outline),
+                  title: Text(t.get('yaadPro')),
+                  subtitle: Text(s.proUnlocked
+                      ? t.get('proActive')
+                      : t.get('proGet')),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                          builder: (_) => const ProScreen())),
+                ),
+              ],
+              _section(t.get('about')),
+              ListTile(
+                leading: const Icon(Icons.privacy_tip_outlined),
+                title: Text(t.get('privacy')),
+                subtitle: Text(t.get('privacyBody')),
               ),
-              const ListTile(
-                leading: Icon(Icons.info_outline),
-                title: Text('Yaad 1.0.0'),
-                subtitle: Text(
-                    'Never forget what your money was for.'),
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('Yaad 1.1.0'),
+                subtitle: Text(t.get('appTagline')),
               ),
             ],
           ),
         );
       },
     );
+  }
+
+  static bool _canUseAppLock(AppSettings s) =>
+      ProService.canUseAppLock(s);
+
+  static String _proSuffix(Strings t, String sub, bool allowed) =>
+      allowed ? sub : '$sub · ${t.get('proFeature')}';
+
+  static void _gate(
+      BuildContext context, bool allowed, VoidCallback action) {
+    if (allowed) {
+      action();
+      return;
+    }
+    Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ProScreen()));
   }
 
   Widget _section(String title) => Padding(
@@ -276,10 +338,62 @@ class SettingsScreen extends StatelessWidget {
     if (v != null) await onPick(v);
   }
 
+  Future<void> _pickAccent(BuildContext context, AppSettings s) async {
+    final t = Strings(s.language);
+    final v = await showDialog<String>(
+      context: context,
+      builder: (_) => SimpleDialog(
+        title: Text(t.get('accentTheme')),
+        children: _accents
+            .map((a) => SimpleDialogOption(
+                  onPressed: () => Navigator.of(context).pop(a),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: YaadTheme.seedFor(a),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(_accentLabel(a)),
+                      if (a == s.accentTheme)
+                        const Padding(
+                          padding: EdgeInsets.only(left: 8),
+                          child: Icon(Icons.check, size: 18),
+                        ),
+                      if (!ProService.canUseAccent(s, a))
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: Text(t.get('proFeature'),
+                              style: TextStyle(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .primary,
+                                  fontSize: 12)),
+                        ),
+                    ],
+                  ),
+                ))
+            .toList(),
+      ),
+    );
+    if (v == null || !context.mounted) return;
+    if (!ProService.canUseAccent(s, v)) {
+      Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const ProScreen()));
+      return;
+    }
+    await appState.update(s.copyWith(accentTheme: v));
+  }
+
   Future<void> _importStatement(BuildContext context) async {
+    final s = Strings(appState.settings.language);
     final res = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['csv', 'xlsx', 'xls', 'txt', 'tsv'],
+      allowedExtensions: ['csv', 'xlsx', 'xls', 'txt', 'tsv', 'pdf'],
       allowMultiple: false,
     );
     if (res == null || res.files.single.path == null) return;
@@ -287,31 +401,68 @@ class SettingsScreen extends StatelessWidget {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) =>
-          const Center(child: CircularProgressIndicator()),
+      builder: (_) => AlertDialog(
+        content: Row(
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(width: 20),
+            Expanded(child: Text(s.get('importReading'))),
+          ],
+        ),
+      ),
     );
-    final report = await StatementImporter()
-        .importFile(res.files.single.path!);
+    final parsed =
+        await StatementImporter().parseFile(res.files.single.path!);
     appState.refresh();
-    if (context.mounted) {
-      Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              'Imported ${report.imported}, skipped ${report.duplicates} duplicates${report.failed > 0 ? ', ${report.failed} failed' : ''}.')));
-      if (report.errors.isNotEmpty && context.mounted) {
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: const Text('Import notes'),
-            content: Text(report.errors.join('\n')),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('OK'))
-            ],
+    if (!context.mounted) return;
+    Navigator.of(context).pop(); // dismiss progress
+
+    // Scanned/image PDF: no extractable text — guide, don't fail silently.
+    if (parsed.pdfNoText) {
+      if (!context.mounted) return;
+      await showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Text(s.get('pdfNoTextTitle')),
+          content: SingleChildScrollView(
+            child: Text(s.get('pdfNoTextBody')),
           ),
-        );
-      }
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(s.get('gotIt')),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    if (!context.mounted) return;
+    final report = await Navigator.of(context).push<ImportReport>(
+      MaterialPageRoute(
+          builder: (_) => ImportPreviewScreen(statement: parsed)),
+    );
+    if (report == null || !context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(s
+            .get('importDone')
+            .replaceFirst('{imported}', '${report.imported}')
+            .replaceFirst('{duplicates}', '${report.duplicates}')
+            .replaceFirst('{failed}', '${report.failed}'))));
+    if (report.errors.isNotEmpty && context.mounted) {
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Text(s.get('importNotes')),
+          content: Text(report.errors.join('\n')),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(s.get('ok')))
+          ],
+        ),
+      );
     }
   }
 
@@ -379,5 +530,160 @@ class SettingsScreen extends StatelessWidget {
             const SnackBar(content: Text('All data deleted.')));
       }
     }
+  }
+}
+
+/// The two opt-in capture toggles (§6). Both default OFF; enabling shows
+/// a rationale first, then the system permission / settings step.
+/// Everything stays on this phone — the native side only queues when
+/// the in-app flag is on.
+class _CaptureSection extends StatefulWidget {
+  const _CaptureSection();
+
+  @override
+  State<_CaptureSection> createState() => _CaptureSectionState();
+}
+
+class _CaptureSectionState extends State<_CaptureSection>
+    with WidgetsBindingObserver {
+  bool _awaitingNotifReturn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _awaitingNotifReturn) {
+      _awaitingNotifReturn = false;
+      _finishNotifOptIn();
+    }
+  }
+
+  Future<void> _toggleSms(bool on) async {
+    final s = Strings(appState.settings.language);
+    if (!on) {
+      await appState.update(
+          appState.settings.copyWith(smsCapture: false));
+      await CaptureService.setSmsEnabled(false);
+      return;
+    }
+    // Rationale first.
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(s.get('smsRationaleTitle')),
+        content: Text(s.get('smsRationaleBody')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(s.get('notNow'))),
+          FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(s.get('turnOn'))),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+    final status = await Permission.sms.request();
+    if (!mounted) return;
+    if (status.isGranted) {
+      await appState.update(
+          appState.settings.copyWith(smsCapture: true));
+      await CaptureService.setSmsEnabled(true);
+      // Drain anything already queued.
+      await CaptureService.drainAndImport();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.get('smsPermissionDenied'))));
+    }
+  }
+
+  Future<void> _toggleNotif(bool on) async {
+    final st = Strings(appState.settings.language);
+    if (!on) {
+      await appState.update(
+          appState.settings.copyWith(notificationCapture: false));
+      await CaptureService.setNotificationEnabled(false);
+      return;
+    }
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(st.get('notifRationaleTitle')),
+        content: Text(st.get('notifRationaleBody')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(st.get('notNow'))),
+          FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(st.get('openSettings'))),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+    if (await CaptureService.isNotificationAccessGranted()) {
+      await _enableNotif();
+    } else {
+      _awaitingNotifReturn = true;
+      await CaptureService.openNotificationSettings();
+    }
+  }
+
+  Future<void> _finishNotifOptIn() async {
+    final st = Strings(appState.settings.language);
+    if (await CaptureService.isNotificationAccessGranted()) {
+      await _enableNotif();
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(st.get('notifAccessNeeded')),
+          action: SnackBarAction(
+              label: st.get('openSettings'),
+              onPressed: () =>
+                  CaptureService.openNotificationSettings()),
+        ));
+      }
+    }
+  }
+
+  Future<void> _enableNotif() async {
+    await appState.update(
+        appState.settings.copyWith(notificationCapture: true));
+    await CaptureService.setNotificationEnabled(true);
+    await CaptureService.drainAndImport();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = appState.settings;
+    final t = Strings(settings.language);
+    return Column(
+      children: [
+        SwitchListTile(
+          secondary: const Icon(Icons.sms_outlined),
+          title: Text(t.get('smsCapture')),
+          subtitle: Text(t.get('smsCaptureSub')),
+          value: settings.smsCapture,
+          onChanged: _toggleSms,
+        ),
+        SwitchListTile(
+          secondary: const Icon(Icons.notifications_outlined),
+          title: Text(t.get('notifCapture')),
+          subtitle: Text(t.get('notifCaptureSub')),
+          value: settings.notificationCapture,
+          onChanged: _toggleNotif,
+        ),
+      ],
+    );
   }
 }
