@@ -41,6 +41,7 @@ jobs:
         run: flutter analyze
 
       - name: Build debug APK (for direct install / testing)
+        id: build-apk
         run: |
           set +e
           flutter build apk --debug > "$RUNNER_TEMP/apk-build.log" 2>&1
@@ -58,26 +59,44 @@ jobs:
           exit $CODE
 
       - name: Build release App Bundle (for Play Store)
-        run: flutter build appbundle --release
+        id: build-aab
+        run: |
+          set +e
+          flutter build appbundle --release > "$RUNNER_TEMP/aab-build.log" 2>&1
+          CODE=$?
+          set -e
+          if [ $CODE -ne 0 ]; then
+            SECTION=$(awk '/FAILURE: Build failed with an exception/,/\* Try:/' "$RUNNER_TEMP/aab-build.log" | head -n 25)
+            if [ -z "$SECTION" ]; then
+              SECTION=$(tail -n 12 "$RUNNER_TEMP/aab-build.log")
+            fi
+            echo "$SECTION" | sed 's/%/%25/g; s/\r/%0D/g' | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error::$line"
+            done
+          fi
+          exit $CODE
 
       - name: Upload debug APK
+        if: steps.build-apk.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: yaad-debug-apk
           path: build/app/outputs/flutter-apk/app-debug.apk
 
       - name: Upload release AAB
+        if: steps.build-aab.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: yaad-release-aab
           path: build/app/outputs/bundle/release/app-release.aab
 
       - name: Publish release
-        if: success()
+        if: steps.build-apk.outcome == 'success'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
           name: Yaad build ${{ github.run_number }}
+          fail_on_unmatched_files: false
           files: |
             build/app/outputs/flutter-apk/app-debug.apk
             build/app/outputs/bundle/release/app-release.aab
