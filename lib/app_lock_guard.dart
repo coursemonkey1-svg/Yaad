@@ -6,8 +6,20 @@
 class AppLockGuard {
   bool _backgrounded = false;
 
+  /// True while Gate's own system auth prompt is on screen. Showing that
+  /// prompt pauses/resumes the app by itself; those transitions must never
+  /// re-lock, or every successful unlock would instantly lock again and the
+  /// user could never get in (infinite lock loop).
+  bool _authInFlight = false;
+
+  /// Call when Gate starts/stops showing the system auth prompt.
+  void setAuthInFlight(bool inFlight) {
+    _authInFlight = inFlight;
+  }
+
   /// Call when the lifecycle hits paused/inactive.
   void onPaused() {
+    if (_authInFlight) return;
     _backgrounded = true;
   }
 
@@ -20,6 +32,7 @@ class AppLockGuard {
   ///
   /// Returns true when the gate must lock and re-run auth.
   bool onResumed({required bool firstBuild, required bool appLockEnabled}) {
+    if (_authInFlight) return false;
     final wasBackgrounded = _backgrounded;
     _backgrounded = false;
     if (!appLockEnabled || firstBuild) return false;

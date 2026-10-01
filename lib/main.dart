@@ -117,6 +117,10 @@ class _GateState extends State<Gate> with WidgetsBindingObserver {
 
   final _guard = AppLockGuard();
 
+  /// Mirrors [_AppLockGuard.authInFlight] for the widget layer: never open a
+  /// second system prompt while one is already up.
+  bool _guardInFlight = false;
+
   bool get _appLockActive =>
       appState.settings.appLock &&
       ProService.canUseAppLock(appState.settings);
@@ -156,6 +160,9 @@ class _GateState extends State<Gate> with WidgetsBindingObserver {
   }
 
   Future<void> _auth() async {
+    if (_guardInFlight) return; // never stack two system prompts
+    _guardInFlight = true;
+    _guard.setAuthInFlight(true);
     final s = Strings(appState.settings.language);
     final auth = LocalAuthentication();
     try {
@@ -189,6 +196,9 @@ class _GateState extends State<Gate> with WidgetsBindingObserver {
           _authError = s.get('lockAuthFailed');
         });
       }
+    } finally {
+      _guardInFlight = false;
+      _guard.setAuthInFlight(false);
     }
   }
 

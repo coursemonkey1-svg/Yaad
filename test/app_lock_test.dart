@@ -44,5 +44,27 @@ void main() {
       // …and a later enable does not resurrect the old pause.
       expect(guard.onResumed(firstBuild: false, appLockEnabled: true), isFalse);
     });
+
+    test('auth prompt pause/resume never relocks (no lock loop)', () {
+      // Regression test: showing the system auth prompt pauses/resumes the
+      // app by itself. Treating that as "user left the app" made every
+      // successful unlock instantly lock again — the user could never get in.
+      final guard = AppLockGuard();
+      guard.setAuthInFlight(true);
+      guard.onPaused(); // system prompt appears…
+      expect(guard.onResumed(firstBuild: false, appLockEnabled: true), isFalse);
+      guard.setAuthInFlight(false);
+    });
+
+    test('genuine backgrounding still relocks after a prompt finished', () {
+      final guard = AppLockGuard();
+      guard.setAuthInFlight(true);
+      guard.onPaused();
+      expect(guard.onResumed(firstBuild: false, appLockEnabled: true), isFalse);
+      guard.setAuthInFlight(false);
+      // Now the user really leaves the app…
+      guard.onPaused();
+      expect(guard.onResumed(firstBuild: false, appLockEnabled: true), isTrue);
+    });
   });
 }
