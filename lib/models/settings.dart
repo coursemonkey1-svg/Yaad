@@ -22,6 +22,7 @@ class AppSettings {
   final String accentTheme; // "teal" free; others are Pro
   final String activityView; // "detailed" | "compact" — Activity list density
   final String defaultAccountId; // id of the default Account ("meezan")
+  final bool showSavings; // Savings section visible on Home (default on)
 
   /// Valid values for [activityView].
   static const String viewDetailed = 'detailed';
@@ -49,6 +50,7 @@ class AppSettings {
     this.accentTheme = 'teal',
     this.activityView = viewDetailed,
     this.defaultAccountId = 'meezan',
+    this.showSavings = true,
   });
 
   AppSettings copyWith({
@@ -73,6 +75,7 @@ class AppSettings {
     String? accentTheme,
     String? activityView,
     String? defaultAccountId,
+    bool? showSavings,
   }) =>
       AppSettings(
         currency: currency ?? this.currency,
@@ -97,6 +100,7 @@ class AppSettings {
         accentTheme: accentTheme ?? this.accentTheme,
         activityView: activityView ?? this.activityView,
         defaultAccountId: defaultAccountId ?? this.defaultAccountId,
+        showSavings: showSavings ?? this.showSavings,
       );
 
   Map<String, Object?> toMap() => {
@@ -121,6 +125,7 @@ class AppSettings {
         'accentTheme': accentTheme,
         'activityView': activityView,
         'defaultAccountId': defaultAccountId,
+        'showSavings': showSavings,
       };
 
   factory AppSettings.fromMap(Map<String, Object?> m) {
@@ -148,6 +153,7 @@ class AppSettings {
         activityView:
             (view == viewCompact) ? viewCompact : viewDetailed,
         defaultAccountId: m['defaultAccountId'] as String? ?? 'meezan',
+        showSavings: m['showSavings'] as bool? ?? true,
       );
   }
 }

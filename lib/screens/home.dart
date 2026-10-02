@@ -202,14 +202,16 @@ class HomeScreen extends StatelessWidget {
                     const SizedBox(height: Gap.x1 + 4),
                   // 2b. Savings — the parked backup stash. Lives next to
                   // Udhaar: money that is neither spent nor spendable.
-                  if (d.hasSavingsAccount)
+                  // Hidden entirely when the user turns it off in Settings
+                  // (the money math is unaffected — display only).
+                  if (d.hasSavingsAccount && appState.settings.showSavings)
                     _SavingsCard(
                       total: d.savingsTotal,
                       fromId: d.fromId,
                       fromName: d.fromName,
                       toName: d.toName,
                     ),
-                  if (d.hasSavingsAccount)
+                  if (d.hasSavingsAccount && appState.settings.showSavings)
                     const SizedBox(height: Gap.x1 + 4),
                   // 3. Needs your eye.
                   if (d.reviewCount > 0)

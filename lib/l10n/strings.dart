@@ -219,6 +219,8 @@ class Strings {
     'smartSuggestions': 'Smart suggestions',
     'smartSuggestionsSub':
         'Suggest purpose from your history (always labelled, never auto-applied)',
+    'showSavings': 'Show savings section',
+    'showSavingsSub': 'The savings box on your home screen',
     'youAndMoney': 'You & your money',
     'namesAndImports': 'Names & imports',
     'yourData': 'Your data',
@@ -716,6 +718,8 @@ class Strings {
     'smartSuggestions': 'ذہین تجاویز',
     'smartSuggestionsSub':
         'آپ کی پرانی عادت سے مد تجویز کرے (ہمیشہ بتا کر، خود سے کبھی نہیں)',
+    'showSavings': 'بچت کا خانہ دکھائیں',
+    'showSavingsSub': 'ہوم اسکرین پر بچت کا خانہ',
     'youAndMoney': 'آپ اور آپ کی رقم',
     'namesAndImports': 'نام اور درآمد',
     'yourData': 'آپ کا ڈیٹا',

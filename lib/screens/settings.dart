@@ -194,6 +194,14 @@ class SettingsScreen extends StatelessWidget {
                 onChanged: (v) => appState.update(
                     s.copyWith(smartSuggestions: v)),
               ),
+              SwitchListTile(
+                secondary: const Icon(Icons.savings_outlined),
+                title: Text(t.get('showSavings')),
+                subtitle: Text(t.get('showSavingsSub')),
+                value: s.showSavings,
+                onChanged: (v) =>
+                    appState.update(s.copyWith(showSavings: v)),
+              ),
               _section(t.get('autoCapture')),
               const _CaptureSection(),
               _section(t.get('namesAndImports')),

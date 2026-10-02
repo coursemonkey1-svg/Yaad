@@ -632,6 +632,12 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         status: needsReview ? TxnStatus.needsReview : TxnStatus.confirmed,
       ));
     }
+    // The recording is now saved with the transaction — it is no longer
+    // "pending", so dispose() must not delete it as unsaved junk. (Bug:
+    // without this, closing the screen deleted the just-saved recording
+    // and playback in the view screen pointed at a missing file.)
+    _savedAudioPath = audioPath;
+    _pendingAudioPath = null;
     appState.refresh();
     if (mounted) Navigator.of(context).pop();
   }

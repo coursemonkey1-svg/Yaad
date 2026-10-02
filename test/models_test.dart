@@ -136,5 +136,15 @@ void main() {
       expect(c.onboardingDone, isTrue);
       expect(c.language, 'en');
     });
+
+    test('showSavings defaults on and roundtrips', () {
+      const s = AppSettings();
+      expect(s.showSavings, isTrue);
+      final off = s.copyWith(showSavings: false);
+      expect(off.showSavings, isFalse);
+      expect(AppSettings.fromMap(off.toMap()).showSavings, isFalse);
+      // Older stored maps (no key) default to on.
+      expect(AppSettings.fromMap(const {}).showSavings, isTrue);
+    });
   });
 }
