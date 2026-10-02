@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:yaad/l10n/strings.dart';
 import 'package:yaad/main.dart';
 import 'package:yaad/models/settings.dart';
@@ -34,7 +35,16 @@ Future<void> _flipSmsOn(WidgetTester tester) async {
 }
 
 void main() {
-  setUpAll(() => SharedPreferences.setMockInitialValues({}));
+  // v1.5 WS1 added the demo-data section to Settings; it queries the
+  // database when it builds. Without an sqflite factory this test died
+  // with "databaseFactory not initialized" as soon as the section was
+  // scrolled into cache range — the factory setup every other
+  // DB-touching widget test already had was missing here.
+  setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    SharedPreferences.setMockInitialValues({});
+  });
 
   group('permission guide', () {
     testWidgets('first SMS toggle-ON shows the guide dialog',

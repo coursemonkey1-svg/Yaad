@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../data/db.dart';
 import '../main.dart';
@@ -33,6 +34,90 @@ class CaptureService {
       await _ch.invokeMethod('openNotificationSettings');
     } on PlatformException {
       // System settings unavailable: the settings screen explains.
+    }
+  }
+
+  /// Makes the two capture toggles tell the truth.
+  ///
+  /// Three pieces of state must agree for capture to actually work:
+  /// the Dart flag in settings (what the switch shows), the native
+  /// queueing flag (yaad_capture prefs, checked by the SMS receiver /
+  /// notification listener before anything is queued), and — for
+  /// notifications — the OS listener grant; for SMS, the OS runtime
+  /// permission. The Settings handlers set the first two together,
+  /// but they can drift apart:
+  ///
+  /// - the user revokes the listener grant / SMS permission in Android
+  ///   settings → flags stay ON, capture is dead, switch lies ON;
+  /// - a backup restore writes the settings flags from another phone
+  ///   where access existed → switch ON, native flag and OS grant on
+  ///   THIS phone were never set;
+  /// - conversely the OS grant can be present while the native flag
+  ///   was never (re-)asserted → switch ON, nothing queues.
+  ///
+  /// Reconciliation (run from the main shell before every drain, i.e.
+  /// on app start and every resume): for each channel whose settings
+  /// flag is ON, check the OS-level reality. Granted → re-assert the
+  /// native queueing flag. Not granted → turn the settings flag OFF
+  /// (the switch then shows the truth, and the existing rationale
+  /// flow can re-enable it properly) and clear the native flag. For
+  /// channels whose settings flag is OFF, clear the native flag too,
+  /// so "off" really means the native side queues nothing.
+  ///
+  /// The OS checks are injectable so the mapping is unit-testable with
+  /// the platform channel mocked.
+  static Future<void> reconcileCaptureFlags({
+    Future<bool> Function()? smsPermissionGranted,
+    Future<bool> Function()? notificationAccessGranted,
+  }) async {
+    final s = appState.settings;
+    var next = s;
+
+    if (!s.smsCapture) {
+      await _setQuietly(() => setSmsEnabled(false));
+    } else if (await (smsPermissionGranted?.call() ?? _smsGranted())) {
+      await _setQuietly(() => setSmsEnabled(true));
+    } else {
+      next = next.copyWith(smsCapture: false);
+      await _setQuietly(() => setSmsEnabled(false));
+    }
+
+    if (!s.notificationCapture) {
+      await _setQuietly(() => setNotificationEnabled(false));
+    } else if (await (notificationAccessGranted?.call() ??
+        _notificationGranted())) {
+      await _setQuietly(() => setNotificationEnabled(true));
+    } else {
+      next = next.copyWith(notificationCapture: false);
+      await _setQuietly(() => setNotificationEnabled(false));
+    }
+
+    if (!identical(next, s)) await appState.update(next);
+  }
+
+  static Future<bool> _smsGranted() async {
+    try {
+      return (await Permission.sms.status).isGranted;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> _notificationGranted() async {
+    try {
+      return await isNotificationAccessGranted();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Native flag writes during reconciliation must never break the
+  /// drain (or app start) when the channel is unavailable.
+  static Future<void> _setQuietly(Future<void> Function() f) async {
+    try {
+      await f();
+    } catch (_) {
+      // Channel unavailable (non-Android build, tests): nothing to sync.
     }
   }
 

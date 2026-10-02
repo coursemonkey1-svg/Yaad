@@ -20,15 +20,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// first-run tour. The pushReplacement stays load-bearing.
   bool _doneInFlight = false;
 
+  @override
+  void dispose() {
+    _page.dispose();
+    super.dispose();
+  }
+
   Future<void> _done() async {
     if (_doneInFlight) return;
     _doneInFlight = true;
     try {
-      await appState.update(
-          appState.settings.copyWith(onboardingDone: true));
+      await appState.update(appState.settings.copyWith(onboardingDone: true));
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const Gate()));
+      Navigator.of(context)
+          .pushReplacement(MaterialPageRoute(builder: (_) => const Gate()));
     } finally {
       _doneInFlight = false;
     }
@@ -44,61 +49,72 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _Page(Icons.handshake_outlined, s.get('onboarding3t'),
           s.get('onboarding3s')),
     ];
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: PageView.builder(
-                controller: _page,
-                onPageChanged: (i) => setState(() => _i = i),
-                itemCount: pages.length,
-                itemBuilder: (_, i) => pages[i],
+    return PopScope(
+      // Android back on pages 2–3 goes back one intro page instead of
+      // quitting the app mid-intro; on the first page it exits as usual.
+      canPop: _i == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || _i == 0) return;
+        _page.previousPage(
+            duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: PageView.builder(
+                  controller: _page,
+                  onPageChanged: (i) => setState(() => _i = i),
+                  itemCount: pages.length,
+                  itemBuilder: (_, i) => pages[i],
+                ),
               ),
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(
-                pages.length,
-                (i) => Container(
-                  margin: const EdgeInsets.all(4),
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: i == _i
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.surfaceContainerHighest,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(
+                  pages.length,
+                  (i) => Container(
+                    margin: const EdgeInsets.all(4),
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: i == _i
+                          ? Theme.of(context).colorScheme.primary
+                          : Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                    ),
                   ),
                 ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Row(
-                children: [
-                  if (_i < pages.length - 1)
-                    TextButton(
-                        onPressed: _done, child: Text(s.get('skip'))),
-                  const Spacer(),
-                  FilledButton(
-                    onPressed: () {
-                      if (_i < pages.length - 1) {
-                        _page.nextPage(
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.easeOut);
-                      } else {
-                        _done();
-                      }
-                    },
-                    child: Text(_i < pages.length - 1
-                        ? s.get('continueBtn')
-                        : s.get('getStarted')),
-                  ),
-                ],
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Row(
+                  children: [
+                    if (_i < pages.length - 1)
+                      TextButton(onPressed: _done, child: Text(s.get('skip'))),
+                    const Spacer(),
+                    FilledButton(
+                      onPressed: () {
+                        if (_i < pages.length - 1) {
+                          _page.nextPage(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeOut);
+                        } else {
+                          _done();
+                        }
+                      },
+                      child: Text(_i < pages.length - 1
+                          ? s.get('continueBtn')
+                          : s.get('getStarted')),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -113,23 +129,34 @@ class _Page extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon,
-              size: 96, color: Theme.of(context).colorScheme.primary),
-          const SizedBox(height: 32),
-          Text(title,
-              textAlign: TextAlign.center,
-              style:
-                  const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          Text(sub,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyLarge),
-        ],
+    // Scrollable so a short/landscape screen (or large system font)
+    // can never overflow the fixed icon + title + subtitle column;
+    // the min-height constraint keeps it vertically centered on
+    // normal screens.
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon,
+                    size: 96, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(height: 32),
+                Text(title,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        fontSize: 24, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                Text(sub,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyLarge),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

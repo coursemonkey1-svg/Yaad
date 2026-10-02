@@ -21,8 +21,7 @@ class ProService {
   static const productId = 'yaad_pro';
 
   /// True when Pro features are available (billing off = everything free).
-  static bool isUnlocked(AppSettings s) =>
-      !s.billingEnabled || s.proUnlocked;
+  static bool isUnlocked(AppSettings s) => !s.billingEnabled || s.proUnlocked;
 
   /// App lock: also free for grandfathered v1.0 users.
   static bool canUseAppLock(AppSettings s) =>
@@ -51,15 +50,22 @@ class ProService {
   /// Starts listening to the purchase stream. Safe to call even when
   /// billing is disabled; nothing is shown to the user.
   Future<void> init() async {
-    _storeAvailable = await _iap.isAvailable();
+    try {
+      _storeAvailable = await _iap.isAvailable();
+    } catch (_) {
+      // Plugin unavailable (non-Play build, test environment): Pro
+      // plumbing stays dormant. This runs before runApp in main() —
+      // a throw here would stop the whole app from starting.
+      _storeAvailable = false;
+      return;
+    }
     if (!_storeAvailable) return;
     _sub = _iap.purchaseStream.listen(
       _onPurchases,
       onError: (_) {},
     );
     try {
-      final resp =
-          await _iap.queryProductDetails({productId});
+      final resp = await _iap.queryProductDetails({productId});
       if (resp.productDetails.isNotEmpty) {
         _product = resp.productDetails.first;
       }

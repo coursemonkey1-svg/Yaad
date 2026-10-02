@@ -1,3 +1,20 @@
+/// Maps a local_auth [PlatformException] code to the lock-screen string
+/// key to show. Codes that mean "this phone has no usable screen lock"
+/// get the dedicated set-a-screen-lock message; anything else gets the
+/// generic try-again message. Pure, so the mapping is unit-testable
+/// (local_auth itself can't run in tests).
+String lockErrorKeyForPlatformCode(String? code) {
+  switch (code) {
+    case 'NotEnrolled':
+    case 'PasscodeNotSet':
+    case 'NotAvailable':
+    case 'NoBiometricsEnrolled':
+      return 'lockNotSupported';
+    default:
+      return 'lockAuthFailed';
+  }
+}
+
 /// Decides whether the [Gate] must lock again after the app returns from the
 /// background.
 ///
