@@ -171,19 +171,22 @@ void main() {
     await YaadDb.wipeAll();
     final summary = await BackupService().importJson(path);
     expect(summary.added, 2);
-    // The backup now includes the accounts table; the seeded accounts
-    // already exist, so they are matched by id and skipped — never
-    // duplicated.
+    // The backup includes the accounts table. The seeded accounts
+    // already exist and are matched by id — since v1.5 they are
+    // UPDATED in place from the backup (rename + opening balance
+    // survive a fresh-install restore), so they count as neither
+    // added nor skipped, and are never duplicated.
     final accountCount = (data['accounts'] as List).length;
     expect(accountCount, greaterThanOrEqualTo(3));
-    expect(summary.skipped, accountCount);
+    expect(summary.skipped, 0);
     expect(await YaadDb.txns(), hasLength(1));
     final people = await db.query('people');
     expect(people, hasLength(1));
-    // Importing again skips everything that already exists.
+    // Importing again skips everything that already exists (the seed
+    // accounts are silently re-updated to the same values).
     final again = await BackupService().importJson(path);
     expect(again.added, 0);
-    expect(again.skipped, 2 + accountCount);
+    expect(again.skipped, 2);
   });
 
   test('legacy backup that still contains audit imports fine', () async {

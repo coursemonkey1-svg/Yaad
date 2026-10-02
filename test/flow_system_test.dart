@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:yaad/app_lock_guard.dart';
 import 'package:yaad/data/db.dart';
 import 'package:yaad/l10n/strings.dart';
@@ -32,6 +33,9 @@ void main() {
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    // main() does this in production; Home's PeriodSelector reaches
+    // AppState.nowInTz(), which needs the tz database.
+    tzdata.initializeTimeZones();
     SharedPreferences.setMockInitialValues({});
   });
 

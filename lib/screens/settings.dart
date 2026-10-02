@@ -719,6 +719,12 @@ class _CaptureSectionState extends State<_CaptureSection>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Reconcile the moment Settings opens, not just at shell
+    // start/resume: if the OS-level grant was revoked outside the
+    // app, the switches below must show the truth immediately
+    // (the shell-level pass in main.dart covers start/resume; this
+    // closes the "opened Settings directly" gap).
+    CaptureService.reconcileCaptureFlags();
   }
 
   @override

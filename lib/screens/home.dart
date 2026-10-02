@@ -8,9 +8,11 @@ import '../models/account.dart';
 import '../models/lending.dart';
 import '../models/transaction.dart';
 import '../models/purposes.dart';
+import '../models/settings.dart';
 import '../services/demo_data.dart';
 import '../theme.dart';
 import '../widgets/atoms.dart';
+import '../widgets/period_selector.dart';
 import 'accounts.dart';
 import 'review.dart';
 import 'summary.dart';
@@ -36,15 +38,18 @@ class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key, this.onGoToUdhaar});
 
   Future<_Dash> _load(Strings s) async {
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final monthMs = appState.startOfMonthMs();
+    // The shared viewing period (v1.5 period picker): hero figures
+    // and the Recent list all live inside it. Balances and udhaar
+    // stay all-time — they are not period figures.
+    final (fromMs, toMs) = appState.periodRangeMs();
 
-    final monthSpent = await YaadDb.sumSpent(monthMs, nowMs);
-    final monthReceived = await YaadDb.sumReceived(monthMs, nowMs);
-    // "Left" = what came in this month, minus what went out, minus
-    // what got parked in savings. Parked money isn't spendable, so it
-    // counts as used for the month; taking it back frees it again.
-    final monthParked = await YaadDb.savingsNet(monthMs, nowMs);
+    final monthSpent = await YaadDb.sumSpent(fromMs, toMs);
+    final monthReceived = await YaadDb.sumReceived(fromMs, toMs);
+    // "Left" = what came in, minus what went out, minus what got
+    // parked in savings — all inside the selected period. Parked
+    // money isn't spendable, so it counts as used; taking it back
+    // frees it again.
+    final monthParked = await YaadDb.savingsNet(fromMs, toMs);
     final left = monthLeft(
         received: monthReceived, spent: monthSpent, parked: monthParked);
 
@@ -89,7 +94,7 @@ class HomeScreen extends StatelessWidget {
       }
     }
 
-    final recent = await YaadDb.txns(limit: 5);
+    final recent = await YaadDb.txns(limit: 5, fromMs: fromMs, toMs: toMs);
     // Any rows at all: drives the first-run empty state (a buyer with
     // a totally empty app gets the "see how it works" offer, not just
     // a blank Recent list).
@@ -117,17 +122,22 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  String _monthName(BuildContext context) {
-    const en = [
-      'January', 'February', 'March', 'April', 'May', 'June', 'July',
-      'August', 'September', 'October', 'November', 'December'
-    ];
-    const ur = [
-      'جنوری', 'فروری', 'مارچ', 'اپریل', 'مئی', 'جون', 'جولائی',
-      'اگست', 'ستمبر', 'اکتوبر', 'نومبر', 'دسمبر'
-    ];
-    final m = appState.nowInTz().month;
-    return appState.settings.language == 'ur' ? ur[m - 1] : en[m - 1];
+  /// The hero's first line always names the period being shown —
+  /// never a bare figure with an unclear window. "Spent in October",
+  /// "Spent in March 2025", "Spent in 2026", "Spent — all time".
+  /// Last month shows its own month name (it IS September, not the
+  /// phrase "last month", on a money card).
+  String _heroLabel(Strings s) {
+    final period = appState.settings.period;
+    if (period == AppSettings.periodAllTime) {
+      return s.get('spentAllTime');
+    }
+    if (period == AppSettings.periodLastMonth) {
+      final n = appState.nowInTz();
+      final last = DateTime(n.year, n.month - 1);
+      return '${s.get('spentIn')} ${s.monthFull(last.month)}';
+    }
+    return '${s.get('spentIn')} ${appState.periodLabel()}';
   }
 
   @override
@@ -170,9 +180,15 @@ class HomeScreen extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(
                     Gap.x2, Gap.x2, Gap.x2, 96),
                 children: [
-                  // 1. Hero: spent this month.
+                  // 0. Period: which window everything below shows.
+                  const Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: PeriodSelector(),
+                  ),
+                  const SizedBox(height: Gap.x1 + 4),
+                  // 1. Hero: spent in the selected period.
                   _HeroCard(
-                    label: '${s.get('spentIn')} ${_monthName(context)}',
+                    label: _heroLabel(s),
                     amount: d.monthSpent,
                     sub:
                         '${s.get('received')}: ${appState.money(d.monthReceived)}',
@@ -249,7 +265,15 @@ class HomeScreen extends StatelessWidget {
                   if (d.recent.isEmpty)
                     YaadEmptyState(
                       icon: Icons.receipt_long_outlined,
-                      title: s.get('noSpendingYet'),
+                      // An empty PERIOD on a non-empty app says so —
+                      // "no spending recorded yet" would be a lie
+                      // when he is simply looking at a quiet month.
+                      title: d.hasAnyTxn
+                          ? s
+                              .get('noTxnsInPeriod')
+                              .replaceFirst(
+                                  '{period}', appState.periodLabel())
+                          : s.get('noSpendingYet'),
                       body: s.get('tapAddHint'),
                     ),
                   // Totally empty app: offer the guided look around.
@@ -607,23 +631,32 @@ class _SavingsSheetState extends State<_SavingsSheet> {
       accountId: widget.fromId,
       toAccountId: widget.toId,
     ));
-    // Recompute the month exactly as Home does, so the confirmation
-    // matches the number he is about to see on the hero card.
+    // Recompute the confirmation over the period Home is actually
+    // showing, so the Left in the message matches the hero. When the
+    // move lands OUTSIDE the shown period (he is browsing last month
+    // while parking today), the plain message is used instead — the
+    // same honesty rule as saving an out-of-period transaction.
+    final (fromMs, toMs) = appState.periodRangeMs();
     final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final monthMs = appState.startOfMonthMs();
+    final inPeriod = nowMs >= fromMs && nowMs <= toMs;
     final left = monthLeft(
-      received: await YaadDb.sumReceived(monthMs, nowMs),
-      spent: await YaadDb.sumSpent(monthMs, nowMs),
-      parked: await YaadDb.savingsNet(monthMs, nowMs),
+      received: await YaadDb.sumReceived(fromMs, toMs),
+      spent: await YaadDb.sumSpent(fromMs, toMs),
+      parked: await YaadDb.savingsNet(fromMs, toMs),
     );
     if (!mounted) return;
     Navigator.of(context).pop();
     messenger.showSnackBar(SnackBar(
-      content: Text((widget.add
-              ? s.get('movedSnackPark')
-              : s.get('movedSnackBack'))
-          .replaceFirst('{amount}', appState.money(amount))
-          .replaceFirst('{left}', appState.money(left))),
+      content: Text(inPeriod
+          ? (widget.add
+                  ? s.get('movedSnackPark')
+                  : s.get('movedSnackBack'))
+              .replaceFirst('{amount}', appState.money(amount))
+              .replaceFirst('{left}', appState.money(left))
+          : (widget.add
+                  ? s.get('movedSnackParkPlain')
+                  : s.get('movedSnackBackPlain'))
+              .replaceFirst('{amount}', appState.money(amount))),
     ));
   }
 
