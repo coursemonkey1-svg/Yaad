@@ -7,6 +7,7 @@ import '../l10n/strings.dart';
 import '../main.dart';
 import '../models/settings.dart';
 import '../services/backup.dart';
+import '../services/demo_data.dart';
 import '../widgets/export_range_dialog.dart';
 import '../services/importer.dart';
 import '../services/pro.dart';
@@ -257,6 +258,8 @@ class SettingsScreen extends StatelessWidget {
                 subtitle: Text(t.get('deleteAllSub')),
                 onTap: () => _wipe(context),
               ),
+              _section(t.get('demoData')),
+              const _DemoDataSection(),
               if (s.billingEnabled) ...[
                 _section(t.get('yaadPro')),
                 ListTile(
@@ -287,7 +290,7 @@ class SettingsScreen extends StatelessWidget {
               ),
               ListTile(
                 leading: const Icon(Icons.info_outline),
-                title: const Text('Yaad 1.1.0'),
+                title: const Text('Yaad 1.5.0'),
                 subtitle: Text(t.get('appTagline')),
               ),
             ],
@@ -550,7 +553,8 @@ class SettingsScreen extends StatelessWidget {
     try {
       final summary =
           await BackupService().importJson(res.files.single.path!);
-      appState.refresh();
+      // A backup can carry settings too — reload them, not just data.
+      await appState.load();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(
@@ -589,6 +593,104 @@ class SettingsScreen extends StatelessWidget {
             SnackBar(content: Text(Strings(appState.settings.language).get('allDataDeleted'))));
       }
     }
+  }
+}
+
+/// "Add / Remove demo data" (v1.5). Shows exactly one of the two —
+/// whichever applies. Adding fills every screen with sample figures
+/// so a new user can see how Yaad works; removing deletes exactly
+/// those sample rows (see services/demo_data.dart).
+class _DemoDataSection extends StatefulWidget {
+  const _DemoDataSection();
+
+  @override
+  State<_DemoDataSection> createState() => _DemoDataSectionState();
+}
+
+class _DemoDataSectionState extends State<_DemoDataSection> {
+  bool? _hasDemo;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  Future<void> _reload() async {
+    final has = await DemoData.hasDemo();
+    if (mounted) setState(() => _hasDemo = has);
+  }
+
+  Future<void> _add() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final s = Strings(appState.settings.language);
+    await DemoData.addDemo(currency: appState.settings.currency);
+    appState.refresh();
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _hasDemo = true;
+    });
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(s.get('demoAdded'))));
+  }
+
+  Future<void> _remove() async {
+    if (_busy) return;
+    final s = Strings(appState.settings.language);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(s.get('demoConfirmTitle')),
+        content: Text(s.get('demoConfirmBody')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(s.get('cancel'))),
+          FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(s.get('removeDemoData'))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _busy = true);
+    await DemoData.removeDemo();
+    appState.refresh();
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _hasDemo = false;
+    });
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(s.get('demoRemoved'))));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Strings(appState.settings.language);
+    final has = _hasDemo;
+    if (has == null) {
+      return const ListTile(
+        leading: Icon(Icons.science_outlined),
+        title: Text('…'),
+      );
+    }
+    return ListTile(
+      leading: const Icon(Icons.science_outlined),
+      title: Text(has ? t.get('removeDemoData') : t.get('addDemoData')),
+      subtitle:
+          Text(has ? t.get('removeDemoDataSub') : t.get('addDemoDataSub')),
+      trailing: _busy
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2))
+          : const Icon(Icons.chevron_right),
+      onTap: _busy ? null : (has ? _remove : _add),
+    );
   }
 }
 

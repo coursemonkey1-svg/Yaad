@@ -15,7 +15,7 @@ import '../models/purposes.dart';
 /// no account, no server, no sync. Free forever.
 class YaadDb {
   static const _name = 'yaad.db';
-  static const _version = 6;
+  static const _version = 7;
   static Database? _db;
 
   static Future<Database> get db async {
@@ -45,6 +45,10 @@ class YaadDb {
   /// v5 → v6: add the nullable `toAccountId` column on transactions —
   /// the destination account of a transfer (e.g. Meezan → Savings).
   /// Existing rows keep working — the column is NULL for them.
+  /// v6 → v7: add `isDemo` flag columns (0/1, default 0) to
+  /// transactions, people, lending and custom_purposes — the marker
+  /// "Remove demo data" uses to delete exactly the sample rows
+  /// "Add demo data" created, and nothing real (v1.5).
   static Future<void> _upgrade(
       Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
@@ -96,6 +100,20 @@ class YaadDb {
     if (oldVersion < 6) {
       await db.execute('ALTER TABLE transactions ADD COLUMN toAccountId TEXT');
     }
+    if (oldVersion < 7) {
+      // Guarded by table existence: production DBs always have all
+      // four tables, but a defensive check costs nothing and keeps
+      // partial/older replicas from crashing the upgrade.
+      final tables = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type = 'table'");
+      final existing = {for (final r in tables) r['name'] as String};
+      for (final t in ['transactions', 'people', 'lending', 'custom_purposes']) {
+        if (existing.contains(t)) {
+          await db.execute(
+              'ALTER TABLE $t ADD COLUMN isDemo INTEGER NOT NULL DEFAULT 0');
+        }
+      }
+    }
   }
 
   /// Inserts the Meezan / Savings / Cash seeds. INSERT OR IGNORE:
@@ -131,6 +149,7 @@ class YaadDb {
         linkedLendingId TEXT,
         accountId TEXT,
         toAccountId TEXT,
+        isDemo INTEGER NOT NULL DEFAULT 0,
         createdAt INTEGER NOT NULL,
         updatedAt INTEGER NOT NULL
       )''');
@@ -149,6 +168,7 @@ class YaadDb {
         name TEXT NOT NULL,
         phone TEXT,
         note TEXT NOT NULL,
+        isDemo INTEGER NOT NULL DEFAULT 0,
         createdAt INTEGER NOT NULL
       )''');
 
@@ -166,6 +186,7 @@ class YaadDb {
         receiptPath TEXT,
         isOwedToMe INTEGER NOT NULL,
         status TEXT NOT NULL,
+        isDemo INTEGER NOT NULL DEFAULT 0,
         createdAt INTEGER NOT NULL,
         updatedAt INTEGER NOT NULL
       )''');
@@ -198,6 +219,7 @@ class YaadDb {
       CREATE TABLE custom_purposes(
         id TEXT PRIMARY KEY,
         label TEXT NOT NULL,
+        isDemo INTEGER NOT NULL DEFAULT 0,
         createdAt INTEGER NOT NULL
       )''');
 
@@ -811,9 +833,11 @@ class YaadDb {
       'lending',
       'repayments',
       'aliases',
+      'custom_purposes',
       'audit'
     ]) {
       await d.delete(t);
     }
+    await refreshCustomPurposeRegistry();
   }
 }

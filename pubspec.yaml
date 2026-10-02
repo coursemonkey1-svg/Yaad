@@ -1,7 +1,7 @@
 name: yaad
 description: "Yaad — never forget what your money was for. A free, private, on-device personal finance companion."
 publish_to: "none"
-version: 1.1.0+2
+version: 1.5.0+25
 
 environment:
   sdk: ">=3.4.0 <4.0.0"

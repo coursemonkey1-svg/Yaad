@@ -13,11 +13,14 @@ class CustomPurpose {
   final String id;
   final String label;
   final int createdAt;
+  /// True for the sample purpose created by "Add demo data" (v1.5).
+  final bool isDemo;
 
   const CustomPurpose({
     required this.id,
     required this.label,
     required this.createdAt,
+    this.isDemo = false,
   });
 
   /// The tile shown in pickers and filter chips. Custom purposes get a
@@ -36,11 +39,13 @@ class CustomPurpose {
         'id': id,
         'label': label,
         'createdAt': createdAt,
+        'isDemo': isDemo ? 1 : 0,
       };
 
   factory CustomPurpose.fromMap(Map<String, Object?> m) => CustomPurpose(
         id: m['id'] as String,
         label: m['label'] as String,
         createdAt: (m['createdAt'] as num?)?.toInt() ?? 0,
+        isDemo: ((m['isDemo'] as num?) ?? 0) != 0,
       );
 }

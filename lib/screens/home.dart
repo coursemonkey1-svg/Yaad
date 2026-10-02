@@ -8,6 +8,7 @@ import '../models/account.dart';
 import '../models/lending.dart';
 import '../models/transaction.dart';
 import '../models/purposes.dart';
+import '../services/demo_data.dart';
 import '../theme.dart';
 import '../widgets/atoms.dart';
 import 'review.dart';
@@ -88,7 +89,12 @@ class HomeScreen extends StatelessWidget {
     }
 
     final recent = await YaadDb.txns(limit: 5);
+    // Any rows at all: drives the first-run empty state (a buyer with
+    // a totally empty app gets the "see how it works" offer, not just
+    // a blank Recent list).
+    final hasAnyTxn = (await YaadDb.txns(limit: 1)).isNotEmpty;
     return _Dash(
+      hasAnyTxn: hasAnyTxn,
       monthSpent: monthSpent,
       monthReceived: monthReceived,
       monthLeft: left,
@@ -233,6 +239,24 @@ class HomeScreen extends StatelessWidget {
                       title: s.get('noSpendingYet'),
                       body: s.get('tapAddHint'),
                     ),
+                  // Totally empty app: offer the guided look around.
+                  // One tap fills in sample figures (Settings → Demo
+                  // data takes them back out just as fast).
+                  if (!d.hasAnyTxn) ...[
+                    const SizedBox(height: Gap.x1),
+                    Center(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.science_outlined),
+                        label: Text(
+                            '${s.get('seeHowItWorks')} — ${s.get('addDemoDataCta')}'),
+                        onPressed: () async {
+                          await DemoData.addDemo(
+                              currency: appState.settings.currency);
+                          appState.refresh();
+                        },
+                      ),
+                    ),
+                  ],
                   for (final t in d.recent) TxnRow(txn: t),
                 ],
               ),
@@ -245,6 +269,7 @@ class HomeScreen extends StatelessWidget {
 }
 
 class _Dash {
+  final bool hasAnyTxn;
   final double monthSpent, monthReceived, monthLeft;
   final double owedToMe, iOwe;
   final double savingsTotal;
@@ -253,6 +278,7 @@ class _Dash {
   final int reviewCount, peopleOwing, peopleOwed;
   final List<YaadTransaction> recent;
   _Dash({
+    required this.hasAnyTxn,
     required this.monthSpent,
     required this.monthReceived,
     required this.monthLeft,
@@ -484,6 +510,7 @@ class _SavingsSheet extends StatefulWidget {
 
 class _SavingsSheetState extends State<_SavingsSheet> {
   final _amountCtrl = TextEditingController();
+  bool _moving = false;
 
   @override
   void dispose() {
@@ -498,8 +525,11 @@ class _SavingsSheetState extends State<_SavingsSheet> {
   /// never counted as spending or income, so the month totals stay
   /// clean; [YaadDb.savingsNet] derives in−out from these rows.
   Future<void> _move() async {
+    // Rapid double-tap guard: one tap, one transfer row.
+    if (_moving) return;
     final amount = _amount;
     if (amount <= 0) return;
+    setState(() => _moving = true);
     await YaadDb.insertTxn(YaadTransaction(
       amount: amount,
       dateTime: DateTime.now(),
@@ -567,7 +597,7 @@ class _SavingsSheetState extends State<_SavingsSheet> {
                 ),
                 const SizedBox(height: Gap.x2),
                 FilledButton(
-                  onPressed: _amount > 0 ? _move : null,
+                  onPressed: _amount > 0 && !_moving ? _move : null,
                   child: Text(s.get('move')),
                 ),
               ],

@@ -301,6 +301,11 @@ class _TransactionViewScreenState extends State<TransactionViewScreen> {
             icon: _txn.source == TxnSource.manual
                 ? Icons.edit_outlined
                 : Icons.account_balance_outlined),
+        // Demo rows keep their real source badge (they behave like
+        // real entries) and gain one honest "Demo" marker.
+        if (_txn.isDemo)
+          _chip(context, s.get('demoBadge'), cs.secondary,
+              icon: Icons.science_outlined),
       ],
     );
   }
