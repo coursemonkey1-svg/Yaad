@@ -58,10 +58,26 @@ class _LendScreenState extends State<LendScreen> {
   List<Person> _matches() {
     final q = _personCtrl.text.trim().toLowerCase();
     if (q.isEmpty) return [];
+    // Once a person is picked (text == their name), the suggestion
+    // list would only repeat that same person — hide it.
+    if (_selectedPerson != null &&
+        _selectedPerson!.name.toLowerCase() == q) {
+      return [];
+    }
     return _people
         .where((p) => p.name.toLowerCase().contains(q))
         .take(5)
         .toList();
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) setState(() => _date = picked);
   }
 
   Future<void> _save() async {
@@ -94,7 +110,9 @@ class _LendScreenState extends State<LendScreen> {
     return Scaffold(
       appBar: AppBar(title: Text(s.get('iLentMoney'))),
       body: ListView(
-        padding: const EdgeInsets.all(Gap.x2),
+        // Bottom clearance so the Save button and the note under it
+        // can always scroll clear of the keyboard / screen edge.
+        padding: const EdgeInsets.fromLTRB(Gap.x2, Gap.x2, Gap.x2, Gap.x4),
         children: [
           Text(s.get('whoDidYouLendTo'),
               style:
@@ -152,6 +170,14 @@ class _LendScreenState extends State<LendScreen> {
               hintText: s.get('whatForHint'),
               border: const OutlineInputBorder(),
             ),
+          ),
+          const SizedBox(height: Gap.x1),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.calendar_today_outlined),
+            title: Text(s.get('date')),
+            subtitle: Text(appState.formatDate(_date)),
+            onTap: _pickDate,
           ),
           const SizedBox(height: Gap.x3),
           FilledButton(

@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../data/db.dart';
 import '../l10n/strings.dart';
 import '../models/account.dart';
+import '../models/custom_purpose.dart';
 import '../models/settings.dart';
 import '../models/transaction.dart';
 import '../models/person.dart';
@@ -35,8 +36,22 @@ class BackupService {
       'repayments',
       'aliases',
       'accounts',
+      'custom_purposes',
     ]) {
       data[t] = await db.query(t);
+    }
+    // Settings live in SharedPreferences, not SQLite — include them
+    // so a restore really is a round trip (language, currency,
+    // accounts default, toggles). Older backups without this key
+    // restore fine; the import side treats it as optional.
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(AppState.prefsKey);
+      if (raw != null) {
+        data['settings'] = Map<String, Object?>.from(jsonDecode(raw));
+      }
+    } catch (_) {
+      // A backup without settings is still a backup.
     }
     data['exportedAt'] = DateTime.now().toIso8601String();
     data['app'] = 'yaad';
@@ -141,9 +156,37 @@ class BackupService {
 
     await restore('people', (m) => Person.fromMap(m).toMap());
     await restore('aliases', (m) => MerchantAlias.fromMap(m).toMap());
-    // Accounts match by id — the seeded Meezan / Savings / Cash rows
-    // already exist, so they are skipped, never duplicated.
-    await restore('accounts', (m) => Account.fromMap(m).toMap());
+    // Accounts match by id. User-added accounts follow the normal
+    // skip-if-present rule — but the SEEDED accounts (Meezan /
+    // Savings / Cash) exist on every install, so skipping them would
+    // silently lose a seed's rename and its opening balance on every
+    // fresh-install restore. Seeds are structural with stable ids:
+    // update them in place from the backup instead.
+    final accountRows = (data['accounts'] as List?) ?? [];
+    for (final r in accountRows) {
+      final m = Map<String, Object?>.from(r as Map);
+      final acc = Account.fromMap(m);
+      final existing = await db.query('accounts',
+          where: 'id = ?', whereArgs: [acc.id], limit: 1);
+      if (existing.isEmpty) {
+        await db.insert('accounts', acc.toMap());
+        added++;
+      } else if (acc.id == Account.seedMeezan ||
+          acc.id == Account.seedSavings ||
+          acc.id == Account.seedCash) {
+        await db.update(
+            'accounts',
+            {
+              'name': acc.name,
+              'customName': acc.customName ? 1 : 0,
+              'openingBalance': acc.openingBalance,
+            },
+            where: 'id = ?',
+            whereArgs: [acc.id]);
+      } else {
+        skipped++;
+      }
+    }
     // Pre-accounts backups (v1.3 and older) have no accountId on their
     // rows — those land on the default account, exactly like the
     // v4→v5 migration does for on-device rows.
@@ -155,6 +198,21 @@ class BackupService {
     });
     await restore('lending', (m) => LendingRecord.fromMap(m).toMap());
     await restore('repayments', (m) => Repayment.fromMap(m).toMap());
+    // Custom purposes: the db.dart contract always said these are
+    // part of backup/restore, but the table was never exported —
+    // restoring an old phone silently lost every user-created
+    // purpose (its transactions fell back to "Other" labels).
+    await restore('custom_purposes',
+        (m) => CustomPurpose.fromMap(m).toMap());
+    await YaadDb.refreshCustomPurposeRegistry();
+    // Settings (when the backup carries them): write them back to
+    // SharedPreferences; the caller reloads AppState afterwards.
+    final settingsRaw = data['settings'];
+    if (settingsRaw is Map) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(AppState.prefsKey,
+          jsonEncode(Map<String, Object?>.from(settingsRaw)));
+    }
     return ImportSummary(added: added, skipped: skipped);
   }
 

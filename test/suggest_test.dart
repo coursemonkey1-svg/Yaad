@@ -71,9 +71,9 @@ void main() {
     final s = await suggest.suggestPurpose('CORNER STORE', now: now);
     expect(s, isNotNull);
     expect(s!.purpose, 'groceries');
-    // The banner copy is unchanged by the ranking rework.
+    // The banner shows the purpose's display label, not its raw id.
     expect(s.reason,
-        'You chose "groceries" for this merchant 1 time before');
+        'You chose "Groceries" for this merchant 1 time before');
   });
 
   test('a dominant old habit still beats a single recent outlier', () async {
@@ -98,7 +98,7 @@ void main() {
     final s = await suggest.suggestPurpose('BAKERY', now: now);
     expect(s, isNotNull);
     expect(s!.purpose, 'food');
-    expect(s.reason, 'You chose "food" for this merchant 3 times before');
+    expect(s.reason, 'You chose "Food" for this merchant 3 times before');
   });
 
   test('empty history returns null', () async {

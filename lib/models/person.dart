@@ -8,6 +8,9 @@ class Person {
   final String name;
   final String? phone;
   final String note;
+  /// True for people created by "Add demo data" (v1.5) — removed
+  /// again by "Remove demo data" once nothing references them.
+  final bool isDemo;
   final DateTime createdAt;
 
   Person({
@@ -15,6 +18,7 @@ class Person {
     required this.name,
     this.phone,
     this.note = '',
+    this.isDemo = false,
     DateTime? createdAt,
   })  : id = id ?? _uuid.v4(),
         createdAt = createdAt ?? DateTime.now();
@@ -24,6 +28,7 @@ class Person {
         'name': name,
         'phone': phone,
         'note': note,
+        'isDemo': isDemo ? 1 : 0,
         'createdAt': createdAt.millisecondsSinceEpoch,
       };
 
@@ -32,6 +37,7 @@ class Person {
         name: m['name'] as String? ?? '',
         phone: m['phone'] as String?,
         note: m['note'] as String? ?? '',
+        isDemo: ((m['isDemo'] as num?) ?? 0) != 0,
         createdAt: DateTime.fromMillisecondsSinceEpoch(m['createdAt'] as int? ?? 0),
       );
 }

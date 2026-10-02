@@ -82,6 +82,11 @@ class YaadTransaction {
   /// back" is the reverse. NULL for every non-transfer row (and for
   /// transfers whose destination is unknown, e.g. pre-v1.4 rows).
   final String? toAccountId;
+  /// True for sample rows created by "Add demo data" (v1.5). Demo
+  /// rows behave exactly like real ones everywhere; the flag exists
+  /// only so "Remove demo data" can delete exactly them and nothing
+  /// real. Stored as the `isDemo` column (DB v7).
+  final bool isDemo;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -107,6 +112,7 @@ class YaadTransaction {
     this.linkedLendingId,
     this.accountId,
     this.toAccountId,
+    this.isDemo = false,
     DateTime? createdAt,
     DateTime? updatedAt,
   })  : id = id ?? _uuid.v4(),
@@ -178,6 +184,7 @@ class YaadTransaction {
     String? linkedLendingId,
     String? accountId,
     String? toAccountId,
+    bool? isDemo,
   }) {
     return YaadTransaction(
       id: id,
@@ -203,6 +210,7 @@ class YaadTransaction {
       linkedLendingId: linkedLendingId ?? this.linkedLendingId,
       accountId: accountId ?? this.accountId,
       toAccountId: toAccountId ?? this.toAccountId,
+      isDemo: isDemo ?? this.isDemo,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );
@@ -230,6 +238,7 @@ class YaadTransaction {
         'linkedLendingId': linkedLendingId,
         'accountId': accountId,
         'toAccountId': toAccountId,
+        'isDemo': isDemo ? 1 : 0,
         'createdAt': createdAt.millisecondsSinceEpoch,
         'updatedAt': updatedAt.millisecondsSinceEpoch,
       };
@@ -272,6 +281,7 @@ class YaadTransaction {
       linkedLendingId: m['linkedLendingId'] as String?,
       accountId: m['accountId'] as String?,
       toAccountId: m['toAccountId'] as String?,
+      isDemo: ((m['isDemo'] as num?) ?? 0) != 0,
       createdAt: DateTime.fromMillisecondsSinceEpoch(
           m['createdAt'] as int? ?? DateTime.now().millisecondsSinceEpoch),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(

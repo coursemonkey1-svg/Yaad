@@ -52,12 +52,19 @@ class _RepayScreenState extends State<RepayScreen> {
     if (!mounted) return;
     setState(() {
       _open = list;
-      _selected = widget.preselected ??
-          (list.isNotEmpty ? list.first.record : null);
-      if (_selected != null) {
-        final rem = list
-            .firstWhere((o) => o.record.id == _selected!.id)
-            .remaining;
+      // The preselected record may no longer be open (settled since
+      // the caller looked) — fall back instead of crashing on a
+      // firstWhere with no match.
+      _Open? selected;
+      if (widget.preselected != null) {
+        for (final o in list) {
+          if (o.record.id == widget.preselected!.id) selected = o;
+        }
+      }
+      selected ??= list.isNotEmpty ? list.first : null;
+      _selected = selected?.record;
+      if (selected != null) {
+        final rem = selected.remaining;
         _amountCtrl.text =
             rem.toStringAsFixed(rem.truncateToDouble() == rem ? 0 : 2);
       }
@@ -73,11 +80,33 @@ class _RepayScreenState extends State<RepayScreen> {
 
   Future<void> _save() async {
     if (_saving) return;
+    final s = Strings(appState.settings.language);
     final amount =
         double.tryParse(_amountCtrl.text.replaceAll(',', '')) ?? 0;
     if (amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(Strings(appState.settings.language).get('enterAmount'))));
+          SnackBar(content: Text(s.get('enterAmount'))));
+      return;
+    }
+    if (_selected == null) {
+      // Nothing open to repay: recording a "Paid back" transaction
+      // anyway would create money movement no balance ever absorbs.
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(s.get(
+              widget.theyPaidMe ? 'noOpenLent' : 'noOpenBorrowed'))));
+      return;
+    }
+    _Open? open;
+    for (final o in _open) {
+      if (o.record.id == _selected!.id) open = o;
+    }
+    if (open != null && amount > open.remaining + 0.005) {
+      // More than what's left — almost always a typo (extra zero).
+      // Stop here instead of silently over-settling the record.
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(s
+              .get('repayTooMuch')
+              .replaceFirst('{amount}', appState.money(open.remaining)))));
       return;
     }
     setState(() => _saving = true);
@@ -105,6 +134,7 @@ class _RepayScreenState extends State<RepayScreen> {
       purpose: 'uncategorized',
       note: _selected?.reason ?? '',
       personId: widget.person.id,
+      linkedLendingId: _selected?.id,
       source: TxnSource.manual,
       accountId: appState.settings.defaultAccountId,
     ));
@@ -122,7 +152,8 @@ class _RepayScreenState extends State<RepayScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
-              padding: const EdgeInsets.all(Gap.x2),
+              padding: const EdgeInsets.fromLTRB(
+                  Gap.x2, Gap.x2, Gap.x2, Gap.x4),
               children: [
                 Text(
                   widget.theyPaidMe
@@ -167,6 +198,7 @@ class _RepayScreenState extends State<RepayScreen> {
                 const SizedBox(height: Gap.x2),
                 TextField(
                   controller: _amountCtrl,
+                  enabled: _open.isNotEmpty,
                   keyboardType: const TextInputType.numberWithOptions(
                       decimal: true),
                   inputFormatters: [
@@ -182,7 +214,8 @@ class _RepayScreenState extends State<RepayScreen> {
                 ),
                 const SizedBox(height: Gap.x3),
                 FilledButton(
-                  onPressed: _saving ? null : _save,
+                  onPressed:
+                      _saving || _open.isEmpty ? null : _save,
                   style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(52)),
                   child: _saving

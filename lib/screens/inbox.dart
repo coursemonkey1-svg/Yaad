@@ -45,13 +45,27 @@ class _InboxScreenState extends State<InboxScreen> {
     final txn = await YaadDb.txnById(e.txnId);
     if (!mounted) return;
     if (txn == null) {
+      // The transaction is gone (deleted from Activity): prune the
+      // entry so it doesn't sit in the inbox failing forever.
+      await CaptureInbox.instance.removeEntry(e.id);
+      if (!mounted) return;
+      setState(() => _items = _items.where((x) => x.id != e.id).toList());
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(s.get('captureTxnGone'))));
       return;
     }
     await Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => TransactionViewScreen(txn: txn)));
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    // The transaction may have been deleted from its own detail view —
+    // prune the entry instead of leaving a dead row behind.
+    final stillThere = await YaadDb.txnById(e.txnId);
+    if (stillThere == null) {
+      await CaptureInbox.instance.removeEntry(e.id);
+    }
+    if (mounted) {
+      setState(() => _items = CaptureInbox.instance.entries);
+    }
   }
 
   @override
@@ -80,6 +94,16 @@ class _InboxScreenState extends State<InboxScreen> {
                   ),
                 )
               : ListView.separated(
+                  // End-of-list clearance: the last entry must be able
+                  // to scroll fully clear of the bottom system bar /
+                  // gesture area and of floating UI the size of the
+                  // shell's Add FAB (56 + its margins ≈ 88) — user
+                  // screenshots showed the FAB covering list content.
+                  // Providing an explicit padding replaces ListView's
+                  // automatic safe-area padding, so the view inset is
+                  // included here explicitly.
+                  padding: EdgeInsets.only(
+                      bottom: MediaQuery.paddingOf(context).bottom + 88),
                   itemCount: _items.length,
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (_, i) {
@@ -101,9 +125,7 @@ class _InboxScreenState extends State<InboxScreen> {
                         ),
                       ),
                       title: Text(
-                        merchant.isEmpty
-                            ? s.get('captureBankAlert')
-                            : merchant,
+                        merchant.isEmpty ? s.get('captureBankAlert') : merchant,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -113,22 +135,25 @@ class _InboxScreenState extends State<InboxScreen> {
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           Text(appState.money(e.amount),
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 4),
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 2),
                           e.needsReview
                               ? ActionChip(
                                   label: Text(s.get('needsReview')),
                                   visualDensity: VisualDensity.compact,
-                                  onPressed: () =>
-                                      Navigator.of(context).push(
-                                          MaterialPageRoute(
-                                              builder: (_) =>
-                                                  const ReviewScreen())),
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  onPressed: () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                          builder: (_) =>
+                                              const ReviewScreen())),
                                 )
                               : Chip(
                                   label: Text(s.get('captureRecorded')),
                                   visualDensity: VisualDensity.compact,
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
                                 ),
                         ],
                       ),

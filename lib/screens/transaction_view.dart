@@ -87,6 +87,40 @@ class _TransactionViewScreenState extends State<TransactionViewScreen> {
     setState(() => _txn = fresh);
   }
 
+  /// Deletes this transaction for good (its voice recording file is
+  /// removed by the data layer too), then leaves the screen. Before
+  /// v1.5 there was NO delete path anywhere in the app — a wrong entry
+  /// could never be removed.
+  Future<void> _delete() async {
+    final s = Strings(appState.settings.language);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(s.get('deleteTxnTitle')),
+        content: Text(s.get('deleteTxnBody')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(s.get('cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(
+                foregroundColor: Theme.of(ctx).colorScheme.error),
+            child: Text(s.get('delete')),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await YaadDb.deleteTxn(_txn.id);
+    appState.refresh();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(s.get('txnDeleted'))));
+    Navigator.of(context).pop();
+  }
+
   Future<void> _togglePlay() async {
     final path = _txn.audioPath;
     if (path == null) return;
@@ -149,6 +183,12 @@ class _TransactionViewScreenState extends State<TransactionViewScreen> {
       appBar: AppBar(
         title: Text(kindName),
         actions: [
+          IconButton(
+            key: const Key('txnDeleteButton'),
+            tooltip: s.get('delete'),
+            onPressed: _delete,
+            icon: const Icon(Icons.delete_outline),
+          ),
           TextButton.icon(
             key: const Key('txnEditButton'),
             onPressed: _openEdit,
@@ -163,8 +203,19 @@ class _TransactionViewScreenState extends State<TransactionViewScreen> {
             : _loadNames(s),
         builder: (context, snap) {
           final names = snap.data;
-          final title = names?.alias ??
-              (_txn.rawMerchant.isEmpty ? kindName : _txn.rawMerchant);
+          // Hero title: the user's own name for the place/person
+          // wins, then the raw name from the bank/receipt. With
+          // neither, fall back to the PURPOSE name — never the kind
+          // word, which is already in the chip row directly below
+          // (a header reading "Spent" over a "Spent" chip looks
+          // unfinished).
+          final alias = names?.alias;
+          final title = (alias != null && alias.isNotEmpty)
+              ? alias
+              : _txn.rawMerchant.isNotEmpty
+                  ? _txn.rawMerchant
+                  : (s.find('purpose_${_txn.purpose}') ??
+                      purposeLabel(_txn.purpose));
           return ListView(
             padding: const EdgeInsets.all(Gap.x2),
             children: [
@@ -203,7 +254,11 @@ class _TransactionViewScreenState extends State<TransactionViewScreen> {
                 const SizedBox(height: Gap.x2),
                 _voiceCard(context, s),
               ],
-              if (_txn.receiptPath != null) ...[
+              // A receipt path whose file is gone (temp cleanup,
+              // restore onto a new phone) hides the section entirely
+              // instead of rendering an empty bordered box.
+              if (_txn.receiptPath != null &&
+                  File(_txn.receiptPath!).existsSync()) ...[
                 const SizedBox(height: Gap.x2),
                 _section(
                   key: const Key('txnReceipt'),
@@ -301,6 +356,11 @@ class _TransactionViewScreenState extends State<TransactionViewScreen> {
             icon: _txn.source == TxnSource.manual
                 ? Icons.edit_outlined
                 : Icons.account_balance_outlined),
+        // Demo rows keep their real source badge (they behave like
+        // real entries) and gain one honest "Demo" marker.
+        if (_txn.isDemo)
+          _chip(context, s.get('demoBadge'), cs.secondary,
+              icon: Icons.science_outlined),
       ],
     );
   }

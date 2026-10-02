@@ -92,9 +92,10 @@ void main() {
     expect(purposeIcon(cp.id), Icons.tag);
     expect(isCustomPurpose(cp.id), isTrue);
     expect(isCustomPurpose('groceries'), isFalse);
-    // Unknown ids still fall back safely.
+    // Unknown ids still fall back safely — to a neutral tag since
+    // v1.5, never a question mark (a bare "?" reads as a broken icon).
     expect(purposeLabel('nope'), 'Other');
-    expect(purposeIcon('nope'), Icons.help_outline);
+    expect(purposeIcon('nope'), Icons.tag_outlined);
   });
 
   testWidgets('custom purpose appears in the picker grid', (tester) async {

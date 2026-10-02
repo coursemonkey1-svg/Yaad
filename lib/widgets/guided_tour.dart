@@ -36,8 +36,7 @@ class TourStep {
 
 class GuidedTour {
   /// Auto-show exactly once: onboarding done, tour not yet seen.
-  static bool shouldShow(AppSettings s) =>
-      s.onboardingDone && !s.tourSeen;
+  static bool shouldShow(AppSettings s) => s.onboardingDone && !s.tourSeen;
 
   /// The future of the currently-showing tour, if any. While this is
   /// non-null a tour route is either being pushed or is on screen.
@@ -68,6 +67,7 @@ class GuidedTour {
     ValueChanged<int>? onStep,
     required VoidCallback onFinish,
   }) {
+    if (steps.isEmpty) return Future<void>.value();
     final inFlight = _inFlight;
     if (_showing && inFlight != null) return inFlight;
     // Defensive: a stale future with no live page (its Navigator was
@@ -210,8 +210,7 @@ class _TourPageState extends State<_TourPage> {
                 child: CustomPaint(
                   painter: _ScrimPainter(
                     cutout: _target,
-                    scrim: Colors.black
-                        .withValues(alpha: dark ? 0.74 : 0.60),
+                    scrim: Colors.black.withValues(alpha: dark ? 0.74 : 0.60),
                     ring: Theme.of(context).colorScheme.primary,
                   ),
                 ),
@@ -244,9 +243,7 @@ class _TourPageState extends State<_TourPage> {
           strings: widget.strings,
           onSkip: _finish,
           onBack: _i > 0 ? () => _go(_i - 1) : null,
-          onNext: _i < widget.steps.length - 1
-              ? () => _go(_i + 1)
-              : _finish,
+          onNext: _i < widget.steps.length - 1 ? () => _go(_i + 1) : _finish,
           isLast: _i == widget.steps.length - 1,
         ),
       ),
@@ -273,8 +270,8 @@ class _TourPageState extends State<_TourPage> {
         top: r.bottom + 12,
         left: margin,
         right: margin,
-        child:
-            ConstrainedBox(constraints: BoxConstraints(maxHeight: maxH), child: card),
+        child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxH), child: card),
       );
     }
     final maxH = (above - 12).clamp(120.0, screen.height);
@@ -282,8 +279,8 @@ class _TourPageState extends State<_TourPage> {
       bottom: screen.height - r.top + 12,
       left: margin,
       right: margin,
-      child:
-          ConstrainedBox(constraints: BoxConstraints(maxHeight: maxH), child: card),
+      child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxH), child: card),
     );
   }
 }
@@ -320,46 +317,56 @@ class _TourCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(th.Radius.card)),
       child: Padding(
         padding: const EdgeInsets.all(th.Gap.x2),
+        // Only the text block scrolls; the Skip/Back/Next actions stay
+        // pinned and visible however tight the positioned max-height
+        // is (small / landscape phones). Making the WHOLE card scroll
+        // hid the actions below the fold, and giving the text block no
+        // flex at all overflowed the card — this is the middle path.
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(t.get(step.titleKey),
-                style: const TextStyle(
-                    fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: th.Gap.x1),
             Flexible(
               child: SingleChildScrollView(
-                child: Text(t.get(step.bodyKey),
-                    style: Theme.of(context).textTheme.bodyMedium),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(t.get(step.titleKey),
+                        style: const TextStyle(
+                            fontSize: 20, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: th.Gap.x1),
+                    Text(t.get(step.bodyKey),
+                        style: Theme.of(context).textTheme.bodyMedium),
+                    if (step.hintKey != null) ...[
+                      const SizedBox(height: th.Gap.x1 + 4),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.lightbulb_outline,
+                              size: 18, color: cs.primary),
+                          const SizedBox(width: th.Gap.x1),
+                          Expanded(
+                            child: Text(t.get(step.hintKey!),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(color: cs.onSurfaceVariant)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ),
-            if (step.hintKey != null) ...[
-              const SizedBox(height: th.Gap.x1 + 4),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.lightbulb_outline,
-                      size: 18, color: cs.primary),
-                  const SizedBox(width: th.Gap.x1),
-                  Expanded(
-                    child: Text(t.get(step.hintKey!),
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(color: cs.onSurfaceVariant)),
-                  ),
-                ],
-              ),
-            ],
             const SizedBox(height: th.Gap.x2),
             Row(
               children: [
                 TextButton(onPressed: onSkip, child: Text(t.get('tourSkip'))),
                 const Spacer(),
                 if (onBack != null)
-                  TextButton(
-                      onPressed: onBack, child: Text(t.get('tourBack'))),
+                  TextButton(onPressed: onBack, child: Text(t.get('tourBack'))),
                 const SizedBox(width: th.Gap.x1),
                 FilledButton(
                   onPressed: onNext,
@@ -379,9 +386,7 @@ class _TourCard extends StatelessWidget {
                     height: 7,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: d == index
-                          ? cs.primary
-                          : cs.outlineVariant,
+                      color: d == index ? cs.primary : cs.outlineVariant,
                     ),
                   ),
                 ),
@@ -436,8 +441,7 @@ class _ScrimPainter extends CustomPainter {
       Paint()..color = scrim,
     );
     canvas.drawRRect(
-      RRect.fromRectAndRadius(
-          c.inflate(_pad), const Radius.circular(_radius)),
+      RRect.fromRectAndRadius(c.inflate(_pad), const Radius.circular(_radius)),
       Paint()
         ..color = ring
         ..style = PaintingStyle.stroke

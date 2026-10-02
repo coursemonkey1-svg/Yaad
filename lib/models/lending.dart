@@ -21,6 +21,8 @@ class LendingRecord {
   /// true = they owe me, false = I owe them.
   final bool isOwedToMe;
   final LendingStatus status;
+  /// True for records created by "Add demo data" (v1.5).
+  final bool isDemo;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -37,6 +39,7 @@ class LendingRecord {
     this.receiptPath,
     this.isOwedToMe = true,
     this.status = LendingStatus.open,
+    this.isDemo = false,
     DateTime? createdAt,
     DateTime? updatedAt,
   })  : id = id ?? _uuid.v4(),
@@ -55,6 +58,7 @@ class LendingRecord {
     String? receiptPath,
     bool? isOwedToMe,
     LendingStatus? status,
+    bool? isDemo,
   }) {
     return LendingRecord(
       id: id,
@@ -69,6 +73,7 @@ class LendingRecord {
       receiptPath: receiptPath ?? this.receiptPath,
       isOwedToMe: isOwedToMe ?? this.isOwedToMe,
       status: status ?? this.status,
+      isDemo: isDemo ?? this.isDemo,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );
@@ -87,6 +92,7 @@ class LendingRecord {
         'receiptPath': receiptPath,
         'isOwedToMe': isOwedToMe ? 1 : 0,
         'status': status.name,
+        'isDemo': isDemo ? 1 : 0,
         'createdAt': createdAt.millisecondsSinceEpoch,
         'updatedAt': updatedAt.millisecondsSinceEpoch,
       };
@@ -106,6 +112,7 @@ class LendingRecord {
         receiptPath: m['receiptPath'] as String?,
         isOwedToMe: (m['isOwedToMe'] as int? ?? 1) == 1,
         status: LendingStatus.values.byName(m['status'] as String? ?? 'open'),
+        isDemo: ((m['isDemo'] as num?) ?? 0) != 0,
         createdAt: DateTime.fromMillisecondsSinceEpoch(m['createdAt'] as int? ?? 0),
         updatedAt: DateTime.fromMillisecondsSinceEpoch(m['updatedAt'] as int? ?? 0),
       );

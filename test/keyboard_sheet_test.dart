@@ -97,5 +97,21 @@ void main() {
       final amountRect = tester.getRect(find.byType(TextField));
       expect(amountRect.top, greaterThanOrEqualTo(0));
     });
+
+    testWidgets(
+        'last control clears the keyboard edge at max scroll (floating-UI class)',
+        (tester) async {
+      await _pumpSheet(tester, keyboard: 280);
+      await tester.drag(
+          find.byType(SingleChildScrollView), const Offset(0, -1000));
+      await tester.pumpAndSettle();
+      // The keyboard occupies the bottom 280 of the 600-high surface,
+      // so its top edge is y=320. The sheet's last control must end
+      // ABOVE that edge with real clearance — the same class of bug
+      // as Home's last card hiding under the floating Add button.
+      final scanRect = tester.getRect(find.text('Scan receipt'));
+      expect(scanRect.bottom, lessThanOrEqualTo(600 - 280));
+      expect(600 - 280 - scanRect.bottom, greaterThanOrEqualTo(16));
+    });
   });
 }

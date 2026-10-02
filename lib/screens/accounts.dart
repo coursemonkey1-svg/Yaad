@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../data/db.dart';
 import '../l10n/strings.dart';
@@ -20,6 +21,7 @@ class AccountsScreen extends StatefulWidget {
 class _AccountsScreenState extends State<AccountsScreen> {
   List<Account> _accounts = [];
   Map<String, int> _counts = {};
+  Map<String, double> _balances = {};
   bool _loading = true;
 
   @override
@@ -31,6 +33,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
   Future<void> _reload() async {
     final accounts = await YaadDb.accounts();
     final counts = await YaadDb.txnCountsByAccount();
+    final balances = await YaadDb.accountBalances();
     if (!mounted) return;
     // The default must always point at a real account (e.g. a restore
     // or an old settings row referencing a deleted id).
@@ -43,9 +46,13 @@ class _AccountsScreenState extends State<AccountsScreen> {
     setState(() {
       _accounts = accounts;
       _counts = counts;
+      _balances = balances;
       _loading = false;
     });
   }
+
+  double get _totalBalance =>
+      _balances.values.fold(0.0, (a, b) => a + b);
 
   String _label(Account a, Strings s) => a.displayName(s);
 
@@ -63,50 +70,62 @@ class _AccountsScreenState extends State<AccountsScreen> {
     setState(() {});
   }
 
-  /// Add or rename. Returns the trimmed name, or null when cancelled.
-  Future<String?> _promptName(Strings s,
-      {String? initial, required String title}) async {
-    final ctrl = TextEditingController(text: initial ?? '');
-    final name = await showDialog<String>(
+  /// Add or rename (+ opening balance). Returns the trimmed name and
+  /// the raw opening-balance text, or null when cancelled.
+  /// The dialog is a StatefulWidget that owns (and disposes) its
+  /// controllers — disposing them here, right after the dialog
+  /// future completes, crashes the exit animation: the field rebuilds
+  /// once more while the dialog slides out ("used after disposed").
+  Future<({String name, String opening})?> _promptAccount(Strings s,
+      {String? initialName,
+      double initialOpening = 0,
+      required String title}) {
+    return showDialog<({String name, String opening})>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          textCapitalization: TextCapitalization.words,
-          decoration: InputDecoration(
-            hintText: s.get('accountNameHint'),
-            border: const OutlineInputBorder(),
-          ),
-          onSubmitted: (_) =>
-              Navigator.of(ctx).pop(ctrl.text.trim()),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: Text(s.get('cancel'))),
-          FilledButton(
-              onPressed: () =>
-                  Navigator.of(ctx).pop(ctrl.text.trim()),
-              child: Text(s.get('save'))),
-        ],
+      builder: (_) => _AccountDialog(
+        title: title,
+        nameHint: s.get('accountNameHint'),
+        initialName: initialName,
+        openingLabel: s.get('openingBalance'),
+        openingHint: s.get('openingBalanceHint'),
+        initialOpening: initialOpening == 0
+            ? ''
+            : initialOpening.toStringAsFixed(
+                initialOpening.truncateToDouble() == initialOpening
+                    ? 0
+                    : 2),
+        currency: appState.settings.currency,
+        cancelLabel: s.get('cancel'),
+        saveLabel: s.get('save'),
       ),
     );
-    ctrl.dispose();
-    return name;
+  }
+
+  /// Parses the opening-balance field: blank = 0, negatives allowed
+  /// (an account can be overdrawn), non-numeric = null (refused).
+  double? _parseOpening(String text) {
+    final clean = text.trim().replaceAll(',', '');
+    if (clean.isEmpty) return 0;
+    return double.tryParse(clean);
   }
 
   Future<void> _add(Strings s) async {
-    final name = await _promptName(s, title: s.get('addAccount'));
-    if (name == null || !mounted) return;
+    final result = await _promptAccount(s, title: s.get('addAccount'));
+    if (result == null || !mounted) return;
+    final name = result.name;
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(s.get('emptyAccountName'))));
       return;
     }
+    final opening = _parseOpening(result.opening);
+    if (opening == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.get('invalidOpening'))));
+      return;
+    }
     try {
-      final a = await YaadDb.insertAccount(name);
+      final a = await YaadDb.insertAccount(name, openingBalance: opening);
       if (!mounted) return;
       await _reload();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -121,22 +140,42 @@ class _AccountsScreenState extends State<AccountsScreen> {
   }
 
   Future<void> _rename(Strings s, Account a) async {
-    final name = await _promptName(s,
-        initial: a.name, title: s.get('rename'));
-    if (name == null || !mounted) return;
+    final result = await _promptAccount(s,
+        initialName: a.name,
+        initialOpening: a.openingBalance,
+        title: s.get('rename'));
+    if (result == null || !mounted) return;
+    final name = result.name;
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(s.get('emptyAccountName'))));
       return;
     }
+    final opening = _parseOpening(result.opening);
+    if (opening == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.get('invalidOpening'))));
+      return;
+    }
+    final nameChanged = name != a.name;
+    final openingChanged = (opening - a.openingBalance).abs() > 0.005;
+    // Nothing changed: a no-op. (Renaming a seeded account to its
+    // own stored name would flip `customName` and freeze its
+    // localised label (e.g. "میزان") to the English word forever.)
+    if (!nameChanged && !openingChanged) return;
     try {
-      await YaadDb.renameAccount(a.id, name);
+      if (nameChanged) await YaadDb.renameAccount(a.id, name);
+      if (openingChanged) {
+        await YaadDb.setOpeningBalance(a.id, opening);
+      }
       if (!mounted) return;
       await _reload();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(s
-              .get('accountRenamed')
-              .replaceFirst('{name}', name))));
+      if (nameChanged) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(s
+                .get('accountRenamed')
+                .replaceFirst('{name}', name))));
+      }
     } on StateError {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -203,10 +242,26 @@ class _AccountsScreenState extends State<AccountsScreen> {
         body: _loading
             ? const Center(child: CircularProgressIndicator())
             : ListView(
-                padding: const EdgeInsets.all(Gap.x2),
+                padding: const EdgeInsets.fromLTRB(
+                    Gap.x2, Gap.x2, Gap.x2, Gap.x4),
                 children: [
                   Text(s.get('defaultAccountSub'),
                       style: Theme.of(context).textTheme.bodySmall),
+                  const SizedBox(height: Gap.x1),
+                  // Total across every account — the same figure
+                  // Home's Balance card shows.
+                  Row(
+                    children: [
+                      Text(s.get('totalBalance'),
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600)),
+                      const Spacer(),
+                      Text(appState.money(_totalBalance),
+                          style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.bold)),
+                    ],
+                  ),
                   const SizedBox(height: Gap.x1),
                   for (final a in _accounts) _row(context, s, cs, a, defId),
                   const SizedBox(height: Gap.x2),
@@ -224,8 +279,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
   }
 
   Widget _row(BuildContext context, Strings s, ColorScheme cs, Account a,
-      String defId) {
-    final isDefault = a.id == defId;
+      String defId) {    final isDefault = a.id == defId;
     final n = _counts[a.id] ?? 0;
     return Card(
       margin: const EdgeInsets.only(bottom: Gap.x1),
@@ -238,9 +292,17 @@ class _AccountsScreenState extends State<AccountsScreen> {
         ),
         title: Text(_label(a, s),
             style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text(
-          '${s.get('accountTxns').replaceFirst('{n}', '$n')}'
-          '${isDefault ? ' · ${s.get('defaultAccount')}' : ''}',
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(appState.money(_balances[a.id] ?? a.openingBalance),
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 14.5)),
+            Text(
+              '${s.get('accountTxns').replaceFirst('{n}', '$n')}'
+              '${isDefault ? ' · ${s.get('defaultAccount')}' : ''}',
+            ),
+          ],
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
@@ -260,6 +322,102 @@ class _AccountsScreenState extends State<AccountsScreen> {
         ),
         onTap: () => _setDefault(a),
       ),
+    );
+  }
+}
+
+/// The add/rename account dialog: name + optional opening balance.
+/// Owns its text controllers and disposes them in [State.dispose] —
+/// i.e. only once the dialog route (and its exit animation) is fully
+/// gone. Pops a (name, openingText) record, or null when cancelled;
+/// the caller parses/validates the opening text.
+class _AccountDialog extends StatefulWidget {
+  final String title;
+  final String nameHint;
+  final String? initialName;
+  final String openingLabel;
+  final String openingHint;
+  final String initialOpening;
+  final String currency;
+  final String cancelLabel;
+  final String saveLabel;
+  const _AccountDialog({
+    required this.title,
+    required this.nameHint,
+    required this.initialName,
+    required this.openingLabel,
+    required this.openingHint,
+    required this.initialOpening,
+    required this.currency,
+    required this.cancelLabel,
+    required this.saveLabel,
+  });
+
+  @override
+  State<_AccountDialog> createState() => _AccountDialogState();
+}
+
+class _AccountDialogState extends State<_AccountDialog> {
+  late final TextEditingController _nameCtrl =
+      TextEditingController(text: widget.initialName ?? '');
+  late final TextEditingController _openingCtrl =
+      TextEditingController(text: widget.initialOpening);
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _openingCtrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() => Navigator.of(context)
+      .pop((name: _nameCtrl.text.trim(), opening: _openingCtrl.text));
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _nameCtrl,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            decoration: InputDecoration(
+              hintText: widget.nameHint,
+              border: const OutlineInputBorder(),
+            ),
+            // A name is a tag on every transaction card — cap it so a
+            // pasted paragraph can't wreck every list in the app.
+            maxLength: 40,
+            onSubmitted: (_) => _submit(),
+          ),
+          const SizedBox(height: Gap.x1),
+          TextField(
+            controller: _openingCtrl,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true, signed: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.,-]'))
+            ],
+            decoration: InputDecoration(
+              labelText: widget.openingLabel,
+              hintText: widget.openingHint,
+              prefixText: '${widget.currency} ',
+              border: const OutlineInputBorder(),
+            ),
+            onSubmitted: (_) => _submit(),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(widget.cancelLabel)),
+        FilledButton(
+            onPressed: _submit, child: Text(widget.saveLabel)),
+      ],
     );
   }
 }

@@ -74,8 +74,19 @@ void main() {
         createdAt INTEGER NOT NULL
       )''');
     final now = DateTime.now().millisecondsSinceEpoch;
+    // V5-shape seed rows: a real v5 install inserted maps WITHOUT
+    // openingBalance (the column arrives in v8). Using today's
+    // Account.toMap() here would be an unfaithful fixture — and it
+    // crashes against this v5-shaped table.
     for (final a in Account.seeds()) {
-      await db.insert('accounts', a.toMap(),
+      await db.insert(
+          'accounts',
+          {
+            'id': a.id,
+            'name': a.name,
+            'customName': a.customName ? 1 : 0,
+            'createdAt': now,
+          },
           conflictAlgorithm: ConflictAlgorithm.ignore);
     }
     await db.execute('''
@@ -163,12 +174,18 @@ void main() {
     // NOT safe: tests keep writing through YaadDb's cached connection,
     // and SQLite refuses writes once its file is moved.)
     final dh = await YaadDb.db;
+    // Heal shapes must match the CURRENT schema (v8): people /
+    // lending / custom_purposes carry isDemo since v7. Healing with
+    // pre-v7 shapes leaves a version-8 file whose tables reject
+    // current-model inserts in every later test file (the shared
+    // test DB persists across files).
     for (final ddl in [
       '''CREATE TABLE IF NOT EXISTS people(
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         phone TEXT,
         note TEXT NOT NULL,
+        isDemo INTEGER NOT NULL DEFAULT 0,
         createdAt INTEGER NOT NULL
       )''',
       '''CREATE TABLE IF NOT EXISTS lending(
@@ -184,6 +201,7 @@ void main() {
         receiptPath TEXT,
         isOwedToMe INTEGER NOT NULL,
         status TEXT NOT NULL,
+        isDemo INTEGER NOT NULL DEFAULT 0,
         createdAt INTEGER NOT NULL,
         updatedAt INTEGER NOT NULL
       )''',
@@ -205,6 +223,7 @@ void main() {
       '''CREATE TABLE IF NOT EXISTS custom_purposes(
         id TEXT PRIMARY KEY,
         label TEXT NOT NULL,
+        isDemo INTEGER NOT NULL DEFAULT 0,
         createdAt INTEGER NOT NULL
       )''',
     ]) {

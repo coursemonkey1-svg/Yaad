@@ -73,5 +73,35 @@ void main() {
       expect(r.bank, 'unknown');
       expect(r.confidence, isNot(AlertConfidence.none));
     });
+
+    test('zero amount is not a transaction', () {
+      final r = parseAlert('MEEZAN',
+          'Meezan Bank: Your account has been debited by PKR 0.00 at TEST STORE.');
+      expect(r.confidence, AlertConfidence.none);
+      expect(r.amount, isNull);
+    });
+
+    test('absurd amount is rejected, never auto-recorded', () {
+      final r = parseAlert('MEEZAN',
+          'Meezan Bank: Your account has been debited by PKR 999,999,999,999.00 at TEST STORE.');
+      expect(r.confidence, AlertConfidence.none);
+      expect(r.amount, isNull);
+    });
+
+    test('malformed and oversized bodies never crash', () {
+      final junk = 'PKR ${'9' * 500} debited ??? ${'x' * 5000}';
+      final r = parseAlert('', junk);
+      expect(r.confidence, AlertConfidence.none);
+      final r2 = parseAlert('MEEZAN', '💳💳💳 debited PKR ,,, at .');
+      expect(r2.confidence, AlertConfidence.none);
+    });
+
+    test('merchant capture has no trailing dot', () {
+      final r = parseAlert('HBL',
+          'HBL: PKR 1,200.00 debited at F-10 MARKAZ. on 01-Oct-2026.');
+      expect(r.amount, 1200.00);
+      expect(r.merchant, 'F-10 MARKAZ');
+      expect(r.merchant!.endsWith('.'), isFalse);
+    });
   });
 }

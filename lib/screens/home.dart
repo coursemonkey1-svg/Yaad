@@ -8,8 +8,12 @@ import '../models/account.dart';
 import '../models/lending.dart';
 import '../models/transaction.dart';
 import '../models/purposes.dart';
+import '../models/settings.dart';
+import '../services/demo_data.dart';
 import '../theme.dart';
 import '../widgets/atoms.dart';
+import '../widgets/period_selector.dart';
+import 'accounts.dart';
 import 'review.dart';
 import 'summary.dart';
 import 'transaction_view.dart';
@@ -34,15 +38,18 @@ class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key, this.onGoToUdhaar});
 
   Future<_Dash> _load(Strings s) async {
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final monthMs = appState.startOfMonthMs();
+    // The shared viewing period (v1.5 period picker): hero figures
+    // and the Recent list all live inside it. Balances and udhaar
+    // stay all-time — they are not period figures.
+    final (fromMs, toMs) = appState.periodRangeMs();
 
-    final monthSpent = await YaadDb.sumSpent(monthMs, nowMs);
-    final monthReceived = await YaadDb.sumReceived(monthMs, nowMs);
-    // "Left" = what came in this month, minus what went out, minus
-    // what got parked in savings. Parked money isn't spendable, so it
-    // counts as used for the month; taking it back frees it again.
-    final monthParked = await YaadDb.savingsNet(monthMs, nowMs);
+    final monthSpent = await YaadDb.sumSpent(fromMs, toMs);
+    final monthReceived = await YaadDb.sumReceived(fromMs, toMs);
+    // "Left" = what came in, minus what went out, minus what got
+    // parked in savings — all inside the selected period. Parked
+    // money isn't spendable, so it counts as used; taking it back
+    // frees it again.
+    final monthParked = await YaadDb.savingsNet(fromMs, toMs);
     final left = monthLeft(
         received: monthReceived, spent: monthSpent, parked: monthParked);
 
@@ -87,8 +94,17 @@ class HomeScreen extends StatelessWidget {
       }
     }
 
-    final recent = await YaadDb.txns(limit: 5);
+    final recent = await YaadDb.txns(limit: 5, fromMs: fromMs, toMs: toMs);
+    // Any rows at all: drives the first-run empty state (a buyer with
+    // a totally empty app gets the "see how it works" offer, not just
+    // a blank Recent list).
+    final hasAnyTxn = (await YaadDb.txns(limit: 1)).isNotEmpty;
+    // Balances: opening + all legs, all time (v1.5). The hero stays
+    // month-flow; the balance is its own element under it.
+    final totalBalance = await YaadDb.totalBalance();
     return _Dash(
+      hasAnyTxn: hasAnyTxn,
+      totalBalance: totalBalance,
       monthSpent: monthSpent,
       monthReceived: monthReceived,
       monthLeft: left,
@@ -106,17 +122,22 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  String _monthName(BuildContext context) {
-    const en = [
-      'January', 'February', 'March', 'April', 'May', 'June', 'July',
-      'August', 'September', 'October', 'November', 'December'
-    ];
-    const ur = [
-      'جنوری', 'فروری', 'مارچ', 'اپریل', 'مئی', 'جون', 'جولائی',
-      'اگست', 'ستمبر', 'اکتوبر', 'نومبر', 'دسمبر'
-    ];
-    final m = appState.nowInTz().month;
-    return appState.settings.language == 'ur' ? ur[m - 1] : en[m - 1];
+  /// The hero's first line always names the period being shown —
+  /// never a bare figure with an unclear window. "Spent in October",
+  /// "Spent in March 2025", "Spent in 2026", "Spent — all time".
+  /// Last month shows its own month name (it IS September, not the
+  /// phrase "last month", on a money card).
+  String _heroLabel(Strings s) {
+    final period = appState.settings.period;
+    if (period == AppSettings.periodAllTime) {
+      return s.get('spentAllTime');
+    }
+    if (period == AppSettings.periodLastMonth) {
+      final n = appState.nowInTz();
+      final last = DateTime(n.year, n.month - 1);
+      return '${s.get('spentIn')} ${s.monthFull(last.month)}';
+    }
+    return '${s.get('spentIn')} ${appState.periodLabel()}';
   }
 
   @override
@@ -153,11 +174,21 @@ class HomeScreen extends StatelessWidget {
             return RefreshIndicator(
               onRefresh: () async => appState.refresh(),
               child: ListView(
-                padding: const EdgeInsets.all(Gap.x2),
+                // Bottom padding clears the shell's floating Add
+                // button: the last card can always scroll fully
+                // above it, on every tab that shares the FAB.
+                padding: const EdgeInsets.fromLTRB(
+                    Gap.x2, Gap.x2, Gap.x2, 96),
                 children: [
-                  // 1. Hero: spent this month.
+                  // 0. Period: which window everything below shows.
+                  const Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: PeriodSelector(),
+                  ),
+                  const SizedBox(height: Gap.x1 + 4),
+                  // 1. Hero: spent in the selected period.
                   _HeroCard(
-                    label: '${s.get('spentIn')} ${_monthName(context)}',
+                    label: _heroLabel(s),
                     amount: d.monthSpent,
                     sub:
                         '${s.get('received')}: ${appState.money(d.monthReceived)}',
@@ -166,6 +197,10 @@ class HomeScreen extends StatelessWidget {
                         MaterialPageRoute(
                             builder: (_) => const SummaryScreen())),
                   ),
+                  const SizedBox(height: Gap.x1 + 4),
+                  // 1b. Balance: what he actually HAS, all time. Its
+                  // own element — the Spent hero stays untouched.
+                  _BalanceCard(total: d.totalBalance),
                   const SizedBox(height: Gap.x1 + 4),
                   // 2. Udhaar cards (hidden when zero — calm screen).
                   Row(
@@ -178,7 +213,7 @@ class HomeScreen extends StatelessWidget {
                             label: s.get('peopleOweYou'),
                             value: d.owedToMe,
                             sub:
-                                '${d.peopleOwing} ${d.peopleOwing == 1 ? 'person' : 'people'}',
+                                '${d.peopleOwing} ${d.peopleOwing == 1 ? s.get('personOne') : s.get('personMany')}',
                             onTap: onGoToUdhaar ?? () {},
                           ),
                         ),
@@ -192,7 +227,7 @@ class HomeScreen extends StatelessWidget {
                             label: s.get('youOwe'),
                             value: d.iOwe,
                             sub:
-                                '${d.peopleOwed} ${d.peopleOwed == 1 ? 'person' : 'people'}',
+                                '${d.peopleOwed} ${d.peopleOwed == 1 ? s.get('personOne') : s.get('personMany')}',
                             onTap: onGoToUdhaar ?? () {},
                           ),
                         ),
@@ -230,9 +265,35 @@ class HomeScreen extends StatelessWidget {
                   if (d.recent.isEmpty)
                     YaadEmptyState(
                       icon: Icons.receipt_long_outlined,
-                      title: s.get('noSpendingYet'),
+                      // An empty PERIOD on a non-empty app says so —
+                      // "no spending recorded yet" would be a lie
+                      // when he is simply looking at a quiet month.
+                      title: d.hasAnyTxn
+                          ? s
+                              .get('noTxnsInPeriod')
+                              .replaceFirst(
+                                  '{period}', appState.periodLabel())
+                          : s.get('noSpendingYet'),
                       body: s.get('tapAddHint'),
                     ),
+                  // Totally empty app: offer the guided look around.
+                  // One tap fills in sample figures (Settings → Demo
+                  // data takes them back out just as fast).
+                  if (!d.hasAnyTxn) ...[
+                    const SizedBox(height: Gap.x1),
+                    Center(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.science_outlined),
+                        label: Text(
+                            '${s.get('seeHowItWorks')} — ${s.get('addDemoDataCta')}'),
+                        onPressed: () async {
+                          await DemoData.addDemo(
+                              currency: appState.settings.currency);
+                          appState.refresh();
+                        },
+                      ),
+                    ),
+                  ],
                   for (final t in d.recent) TxnRow(txn: t),
                 ],
               ),
@@ -245,6 +306,8 @@ class HomeScreen extends StatelessWidget {
 }
 
 class _Dash {
+  final bool hasAnyTxn;
+  final double totalBalance;
   final double monthSpent, monthReceived, monthLeft;
   final double owedToMe, iOwe;
   final double savingsTotal;
@@ -253,6 +316,8 @@ class _Dash {
   final int reviewCount, peopleOwing, peopleOwed;
   final List<YaadTransaction> recent;
   _Dash({
+    required this.hasAnyTxn,
+    required this.totalBalance,
     required this.monthSpent,
     required this.monthReceived,
     required this.monthLeft,
@@ -320,6 +385,44 @@ class _HeroCard extends StatelessWidget {
                 Text(sub2, style: subStyle),
               ],
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Total balance across all accounts: opening balances + every
+/// transaction leg, all time. Its own slim element under the hero —
+/// the hero stays month-flow ("Spent in October"), this answers
+/// "what do I actually have?". Taps through to My accounts.
+class _BalanceCard extends StatelessWidget {
+  final double total;
+  const _BalanceCard({required this.total});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Strings(appState.settings.language);
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const AccountsScreen())),
+      borderRadius: BorderRadius.circular(Radius.tile),
+      child: Container(
+        padding: const EdgeInsets.all(Gap.x2),
+        decoration: BoxDecoration(
+          color: cs.surfaceContainerHighest.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(Radius.tile),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.account_balance_wallet_outlined, color: cs.primary),
+            const SizedBox(width: Gap.x1),
+            Text(s.get('balance'),
+                style: Theme.of(context).textTheme.titleMedium),
+            const Spacer(),
+            MoneyText(total, size: 22),
+            const Icon(Icons.chevron_right, size: 20),
           ],
         ),
       ),
@@ -440,7 +543,12 @@ class _SavingsCard extends StatelessWidget {
               Expanded(
                 child: FilledButton.tonal(
                   onPressed: () => _openSheet(context, add: true),
-                  child: Text(s.get('addToSavings')),
+                  // Single-line, always: the label scales down
+                  // instead of wrapping to two lines.
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(s.get('addToSavings'), maxLines: 1),
+                  ),
                 ),
               ),
               // Nothing to take back when the stash is empty.
@@ -449,7 +557,10 @@ class _SavingsCard extends StatelessWidget {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () => _openSheet(context, add: false),
-                    child: Text(s.get('takeBack')),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(s.get('takeBack'), maxLines: 1),
+                    ),
                   ),
                 ),
               ],
@@ -484,6 +595,7 @@ class _SavingsSheet extends StatefulWidget {
 
 class _SavingsSheetState extends State<_SavingsSheet> {
   final _amountCtrl = TextEditingController();
+  bool _moving = false;
 
   @override
   void dispose() {
@@ -497,9 +609,18 @@ class _SavingsSheetState extends State<_SavingsSheet> {
   /// One transfer row: from-account → to-account. Kind 'transfer' is
   /// never counted as spending or income, so the month totals stay
   /// clean; [YaadDb.savingsNet] derives in−out from these rows.
+  ///
+  /// After the move, the user SEES what it did: a plain confirmation
+  /// with the amount and the month's new Left — before v1.5 the math
+  /// was right but invisible, and parking looked like it did nothing.
   Future<void> _move() async {
+    // Rapid double-tap guard: one tap, one transfer row.
+    if (_moving) return;
     final amount = _amount;
     if (amount <= 0) return;
+    setState(() => _moving = true);
+    final s = Strings(appState.settings.language);
+    final messenger = ScaffoldMessenger.of(context);
     await YaadDb.insertTxn(YaadTransaction(
       amount: amount,
       dateTime: DateTime.now(),
@@ -510,7 +631,33 @@ class _SavingsSheetState extends State<_SavingsSheet> {
       accountId: widget.fromId,
       toAccountId: widget.toId,
     ));
-    if (mounted) Navigator.of(context).pop();
+    // Recompute the confirmation over the period Home is actually
+    // showing, so the Left in the message matches the hero. When the
+    // move lands OUTSIDE the shown period (he is browsing last month
+    // while parking today), the plain message is used instead — the
+    // same honesty rule as saving an out-of-period transaction.
+    final (fromMs, toMs) = appState.periodRangeMs();
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final inPeriod = nowMs >= fromMs && nowMs <= toMs;
+    final left = monthLeft(
+      received: await YaadDb.sumReceived(fromMs, toMs),
+      spent: await YaadDb.sumSpent(fromMs, toMs),
+      parked: await YaadDb.savingsNet(fromMs, toMs),
+    );
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    messenger.showSnackBar(SnackBar(
+      content: Text(inPeriod
+          ? (widget.add
+                  ? s.get('movedSnackPark')
+                  : s.get('movedSnackBack'))
+              .replaceFirst('{amount}', appState.money(amount))
+              .replaceFirst('{left}', appState.money(left))
+          : (widget.add
+                  ? s.get('movedSnackParkPlain')
+                  : s.get('movedSnackBackPlain'))
+              .replaceFirst('{amount}', appState.money(amount))),
+    ));
   }
 
   @override
@@ -567,7 +714,7 @@ class _SavingsSheetState extends State<_SavingsSheet> {
                 ),
                 const SizedBox(height: Gap.x2),
                 FilledButton(
-                  onPressed: _amount > 0 ? _move : null,
+                  onPressed: _amount > 0 && !_moving ? _move : null,
                   child: Text(s.get('move')),
                 ),
               ],
@@ -640,12 +787,14 @@ class TxnRow extends StatelessWidget {
   }
 }
 
-/// Friendly-name lookups for a row (merchant alias + person + account).
+/// Friendly-name lookups for a row (merchant alias + person + accounts).
 class _TxnRowNames {
   final String? alias;
   final String? personName;
   final String accountLabel;
-  const _TxnRowNames(this.alias, this.personName, this.accountLabel);
+  final String toAccountLabel;
+  const _TxnRowNames(
+      this.alias, this.personName, this.accountLabel, this.toAccountLabel);
 }
 
 class _TxnRow extends StatelessWidget {
@@ -665,11 +814,44 @@ class _TxnRow extends StatelessWidget {
     // default account — a row is never shown without an account tag.
     final accountId = txn.accountId ?? Account.seedMeezan;
     final account = await YaadDb.accountById(accountId);
+    String toLabel = '';
+    if (txn.toAccountId != null) {
+      final to = await YaadDb.accountById(txn.toAccountId!);
+      toLabel = to?.displayName(s) ?? txn.toAccountId!;
+    }
     return _TxnRowNames(
       (alias != null && alias.alias.isNotEmpty) ? alias.alias : null,
       (personName != null && personName.isNotEmpty) ? personName : null,
       account?.displayName(s) ?? accountId,
+      toLabel,
     );
+  }
+
+  /// The card's big line. Transfers say WHERE the money went — a park
+  /// and a take-back must be unmistakable at a glance (before v1.5
+  /// both rendered as "Moved" with the same chips stacked four deep).
+  /// Anything else: the user's name for it, the bank's name, or — when
+  /// there is no name at all — the purpose. Never the kind word: it
+  /// already sits in the chip directly underneath.
+  String _title(Strings s, _TxnRowNames? names) {
+    if (txn.kind == TxnKind.transfer) {
+      final from = names?.accountLabel ?? '';
+      final to = names?.toAccountLabel ?? '';
+      if (txn.purpose == 'savings') {
+        if (txn.toAccountId == Account.seedSavings && to.isNotEmpty) {
+          return s.get('movedTo').replaceFirst('{account}', to);
+        }
+        if (txn.accountId == Account.seedSavings && from.isNotEmpty) {
+          return s.get('takenBackFrom').replaceFirst('{account}', from);
+        }
+      }
+      if (from.isNotEmpty && to.isNotEmpty) return '$from → $to';
+      return kindLabel(txn.kind);
+    }
+    final alias = names?.alias;
+    if (alias != null) return alias;
+    if (txn.rawMerchant.isNotEmpty) return txn.rawMerchant;
+    return purposeLabel(txn.purpose);
   }
 
   @override
@@ -681,8 +863,7 @@ class _TxnRow extends StatelessWidget {
       future: _loadNames(s),
       builder: (context, snap) {
         final names = snap.data;
-        final title = names?.alias ??
-            (txn.rawMerchant.isEmpty ? kindLabel(txn.kind) : txn.rawMerchant);
+        final title = _title(s, names);
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: InkWell(
@@ -735,6 +916,11 @@ class _TxnRow extends StatelessWidget {
   Widget _compactBody(BuildContext context, Strings s, String title,
       _TxnRowNames? names) {
     final cs = Theme.of(context).colorScheme;
+    // Transfers show the whole move on the sub-line: from → to.
+    final sub = (txn.kind == TxnKind.transfer &&
+            (names?.toAccountLabel ?? '').isNotEmpty)
+        ? '${names?.accountLabel ?? ''} → ${names!.toAccountLabel}'
+        : (names?.accountLabel ?? '');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -744,7 +930,7 @@ class _TxnRow extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
                 fontWeight: FontWeight.w600, fontSize: 15, height: 1.3)),
-        Text(names?.accountLabel ?? '',
+        Text(sub,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(fontSize: 11.5, color: cs.onSurfaceVariant)),
@@ -760,14 +946,13 @@ class _TxnRow extends StatelessWidget {
     final timeOfDay =
         MaterialLocalizations.of(context).formatTimeOfDay(
             TimeOfDay.fromDateTime(txn.dateTime));
-    final meta = StringBuffer(appState.formatDate(txn.dateTime))
-      ..write(' · ')
-      ..write(timeOfDay);
-    if (names?.personName != null) {
-      meta
-        ..write(' · ')
-        ..write(names!.personName);
-    }
+    // Date + time stay together on ONE line (they used to wrap
+    // raggedly mid-phrase); the person gets their own line.
+    final dateLine =
+        '${appState.formatDate(txn.dateTime)} · $timeOfDay';
+    final isTransfer = txn.kind == TxnKind.transfer;
+    final from = names?.accountLabel ?? '';
+    final to = names?.toAccountLabel ?? '';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -781,11 +966,19 @@ class _TxnRow extends StatelessWidget {
           spacing: 6,
           runSpacing: 6,
           children: [
-            _chip(context, kindLabel(txn.kind), tint),
-            _chip(context, purposeLabel(txn.purpose),
-                cs.onSurfaceVariant),
-            _chip(context, names?.accountLabel ?? '', cs.tertiary,
-                icon: Icons.account_balance_wallet_outlined),
+            if (isTransfer) ...[
+              // One chip says it all: from → to. No kind chip, no
+              // purpose chip, no second account chip repeating it.
+              if (from.isNotEmpty && to.isNotEmpty)
+                _chip(context, '$from → $to', cs.tertiary,
+                    icon: Icons.swap_horiz),
+            ] else ...[
+              _chip(context, kindLabel(txn.kind), tint),
+              _chip(context, purposeLabel(txn.purpose),
+                  cs.onSurfaceVariant),
+              _chip(context, names?.accountLabel ?? '', cs.tertiary,
+                  icon: Icons.account_balance_wallet_outlined),
+            ],
             if (needsReview)
               _chip(context, s.get('needsReview'), cs.error,
                   icon: Icons.visibility_outlined),
@@ -793,9 +986,17 @@ class _TxnRow extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
-        Text(meta.toString(),
+        Text(dateLine,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
                 fontSize: 12, color: cs.onSurfaceVariant, height: 1.35)),
+        if (names?.personName != null)
+          Text(names!.personName!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontSize: 12, color: cs.onSurfaceVariant, height: 1.35)),
         if (txn.note.trim().isNotEmpty) ...[
           const SizedBox(height: 4),
           Text(txn.note.trim(),

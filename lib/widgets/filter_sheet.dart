@@ -64,6 +64,7 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
   late TxnDirection? _direction;
   late Set<String> _accounts;
   late List<CustomPurpose> _customs;
+  late List<Account> _accountsList;
 
   @override
   void initState() {
@@ -72,6 +73,7 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
     _direction = widget.initialDirection;
     _accounts = Set.of(widget.initialAccounts);
     _customs = List.of(widget.customs);
+    _accountsList = List.of(widget.accounts);
   }
 
   void _emit() => widget.onChanged(FilterSelection(
@@ -115,6 +117,86 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
     _emit();
     ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(widget.s.get('filtersCleared'))));
+  }
+
+  Future<void> _createCustom() async {
+    final s = widget.s;
+    final name = await promptCustomPurposeName(context, s);
+    if (name == null || name.isEmpty || !mounted) return;
+    if (await YaadDb.purposeLabelExists(name)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.get('purposeExists'))));
+      return;
+    }
+    final cp = await YaadDb.insertCustomPurpose(name);
+    if (!mounted) return;
+    setState(() {
+      _customs.add(cp);
+      _purposes.add(cp.id);
+    });
+    _emit();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content:
+            Text(s.get('purposeAdded').replaceFirst('{name}', cp.label))));
+  }
+
+  /// Creates an account from the filter's account picker — the same
+  /// "+ New" treatment the purpose picker above gets, so a user who
+  /// thinks of the account while filtering is never stranded.
+  /// Duplicate rule is the Accounts screen's: YaadDb.insertAccount
+  /// throws StateError on a case-insensitive clash, messaged here.
+  Future<void> _createAccount() async {
+    final s = widget.s;
+    final ctrl = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(s.get('addAccount')),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          maxLength: 40,
+          decoration: InputDecoration(
+            hintText: s.get('accountNameHint'),
+            border: const OutlineInputBorder(),
+          ),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text(s.get('cancel'))),
+          FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
+              child: Text(s.get('save'))),
+        ],
+      ),
+    );
+    if (name == null || !mounted) return;
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.get('emptyAccountName'))));
+      return;
+    }
+    try {
+      final a = await YaadDb.insertAccount(name);
+      if (!mounted) return;
+      setState(() {
+        _accountsList.add(a);
+        _accounts.add(a.id);
+      });
+      _emit();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(s
+              .get('accountAdded')
+              .replaceFirst('{name}', a.displayName(s)))));
+    } on StateError {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.get('accountExists'))));
+    }
   }
 
   Future<void> _confirmDeleteCustom(CustomPurpose cp) async {
@@ -207,6 +289,12 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
                     Text(s.get('longPressHint'),
                         style: Theme.of(context).textTheme.bodySmall),
                   ],
+                  const SizedBox(height: Gap.x1),
+                  ActionChip(
+                    avatar: const Icon(Icons.add, size: 18),
+                    label: Text(s.get('newPurpose')),
+                    onPressed: _createCustom,
+                  ),
                   _sectionTitle(s.get('source')),
                   Wrap(
                     spacing: 8,
@@ -221,9 +309,15 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      for (final a in widget.accounts)
+                      for (final a in _accountsList)
                         _accountChip(a),
                     ],
+                  ),
+                  const SizedBox(height: Gap.x1),
+                  ActionChip(
+                    avatar: const Icon(Icons.add, size: 18),
+                    label: Text(s.get('addAccount')),
+                    onPressed: _createAccount,
                   ),
                 ],
               ),

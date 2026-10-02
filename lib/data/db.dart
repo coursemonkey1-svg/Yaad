@@ -15,7 +15,7 @@ import '../models/purposes.dart';
 /// no account, no server, no sync. Free forever.
 class YaadDb {
   static const _name = 'yaad.db';
-  static const _version = 6;
+  static const _version = 8;
   static Database? _db;
 
   static Future<Database> get db async {
@@ -45,6 +45,13 @@ class YaadDb {
   /// v5 → v6: add the nullable `toAccountId` column on transactions —
   /// the destination account of a transfer (e.g. Meezan → Savings).
   /// Existing rows keep working — the column is NULL for them.
+  /// v6 → v7: add `isDemo` flag columns (0/1, default 0) to
+  /// transactions, people, lending and custom_purposes — the marker
+  /// "Remove demo data" uses to delete exactly the sample rows
+  /// "Add demo data" created, and nothing real (v1.5).
+  /// v7 → v8: add `openingBalance` to accounts — what an account held
+  /// before Yaad started tracking it. Balance = opening + every
+  /// transaction leg, all time (v1.5).
   static Future<void> _upgrade(
       Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
@@ -78,11 +85,18 @@ class YaadDb {
       await db.execute('ALTER TABLE transactions ADD COLUMN voiceNote TEXT');
     }
     if (oldVersion < 5) {
+      // openingBalance is created WITH the table here (ahead of its
+      // v8 step) because _seedAccounts inserts via Account.toMap(),
+      // which carries the column — seeding before the column exists
+      // would crash every upgrade from DB <= v4 inside onUpgrade and
+      // the app could never open its database. The < 8 step below is
+      // column-guarded, so it no-ops for these installs.
       await db.execute('''
         CREATE TABLE accounts(
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
           customName INTEGER NOT NULL DEFAULT 0,
+          openingBalance REAL NOT NULL DEFAULT 0,
           createdAt INTEGER NOT NULL
         )''');
       await _seedAccounts(db);
@@ -95,6 +109,35 @@ class YaadDb {
     }
     if (oldVersion < 6) {
       await db.execute('ALTER TABLE transactions ADD COLUMN toAccountId TEXT');
+    }
+    if (oldVersion < 7) {
+      // Guarded by table existence: production DBs always have all
+      // four tables, but a defensive check costs nothing and keeps
+      // partial/older replicas from crashing the upgrade.
+      final tables = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type = 'table'");
+      final existing = {for (final r in tables) r['name'] as String};
+      for (final t in ['transactions', 'people', 'lending', 'custom_purposes']) {
+        if (existing.contains(t)) {
+          await db.execute(
+              'ALTER TABLE $t ADD COLUMN isDemo INTEGER NOT NULL DEFAULT 0');
+        }
+      }
+    }
+    if (oldVersion < 8) {
+      final tables = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type = 'table'");
+      final existing = {for (final r in tables) r['name'] as String};
+      if (existing.contains('accounts')) {
+        // Column-guarded: upgrades passing through the < 5 step
+        // already created accounts WITH this column (see there).
+        final cols =
+            await db.rawQuery('PRAGMA table_info(accounts)');
+        if (!cols.any((c) => c['name'] == 'openingBalance')) {
+          await db.execute(
+              'ALTER TABLE accounts ADD COLUMN openingBalance REAL NOT NULL DEFAULT 0');
+        }
+      }
     }
   }
 
@@ -131,6 +174,7 @@ class YaadDb {
         linkedLendingId TEXT,
         accountId TEXT,
         toAccountId TEXT,
+        isDemo INTEGER NOT NULL DEFAULT 0,
         createdAt INTEGER NOT NULL,
         updatedAt INTEGER NOT NULL
       )''');
@@ -149,6 +193,7 @@ class YaadDb {
         name TEXT NOT NULL,
         phone TEXT,
         note TEXT NOT NULL,
+        isDemo INTEGER NOT NULL DEFAULT 0,
         createdAt INTEGER NOT NULL
       )''');
 
@@ -166,6 +211,7 @@ class YaadDb {
         receiptPath TEXT,
         isOwedToMe INTEGER NOT NULL,
         status TEXT NOT NULL,
+        isDemo INTEGER NOT NULL DEFAULT 0,
         createdAt INTEGER NOT NULL,
         updatedAt INTEGER NOT NULL
       )''');
@@ -198,6 +244,7 @@ class YaadDb {
       CREATE TABLE custom_purposes(
         id TEXT PRIMARY KEY,
         label TEXT NOT NULL,
+        isDemo INTEGER NOT NULL DEFAULT 0,
         createdAt INTEGER NOT NULL
       )''');
 
@@ -208,6 +255,7 @@ class YaadDb {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         customName INTEGER NOT NULL DEFAULT 0,
+        openingBalance REAL NOT NULL DEFAULT 0,
         createdAt INTEGER NOT NULL
       )''');
     await _seedAccounts(db);
@@ -565,6 +613,79 @@ class YaadDb {
         '-${r.amount}');
   }
 
+  /// Recomputes a lending record's status from its repayments:
+  /// settled when nothing remains, partial when some is repaid,
+  /// open otherwise. Called after any edit that changes the amounts
+  /// (editing a lend/borrow amount, editing a repayment) so the
+  /// person's outstanding figures are always derived, never stale.
+  static Future<void> refreshLendingStatus(String lendingId) async {
+    final d = await db;
+    final rows = await d.query('lending',
+        where: 'id = ?', whereArgs: [lendingId], limit: 1);
+    if (rows.isEmpty) return;
+    final lending = LendingRecord.fromMap(rows.first);
+    if (lending.status == LendingStatus.writtenOff ||
+        lending.status == LendingStatus.gift) {
+      return; // terminal states an amount edit must not resurrect
+    }
+    final repaid = await totalRepaid(lendingId);
+    final remaining = lending.originalAmount - repaid;
+    final status = remaining <= 0.005
+        ? LendingStatus.settled
+        : (repaid > 0 ? LendingStatus.partial : LendingStatus.open);
+    await d.update(
+        'lending',
+        {'status': status.name, 'updatedAt': DateTime.now().millisecondsSinceEpoch},
+        where: 'id = ?', whereArgs: [lendingId]);
+  }
+
+  /// Updates a repayment (amount / date / note) and keeps everything
+  /// derived in step: the parent lending status, and the repayment's
+  /// linked transaction amount/date when one exists.
+  static Future<void> updateRepayment(Repayment r) async {
+    final d = await db;
+    await d.update('repayments', r.toMap(),
+        where: 'id = ?', whereArgs: [r.id]);
+    if (r.transactionId != null) {
+      await d.update(
+          'transactions',
+          {
+            'amount': r.amount,
+            'dateTime': r.date.millisecondsSinceEpoch,
+            'note': r.note,
+          },
+          where: 'id = ?',
+          whereArgs: [r.transactionId]);
+    }
+    await refreshLendingStatus(r.lendingId);
+    await _audit(d, 'lending', r.lendingId, 'repayment-updated',
+        '${r.amount}');
+  }
+
+  /// Deletes a lending record and everything hanging off it: its
+  /// repayments and the transactions those repayments created (via
+  /// Repayment.transactionId). The lend/borrow entry itself has no
+  /// transaction in the current model — the Lend/Borrow screens write
+  /// only the record — so nothing else needs cleanup.
+  static Future<void> deleteLending(String id) async {
+    final d = await db;
+    await d.transaction((txn) async {
+      final reps = await txn.query('repayments',
+          where: 'lendingId = ?', whereArgs: [id]);
+      for (final r in reps) {
+        final tid = r['transactionId'] as String?;
+        if (tid != null && tid.isNotEmpty) {
+          await txn.delete('transactions',
+              where: 'id = ?', whereArgs: [tid]);
+        }
+      }
+      await txn.delete('repayments',
+          where: 'lendingId = ?', whereArgs: [id]);
+      await txn.delete('lending', where: 'id = ?', whereArgs: [id]);
+    });
+    await _audit(d, 'lending', id, 'deleted', 'with repayments');
+  }
+
   // ---------- aliases ----------
 
   static Future<void> upsertAlias(String rawName, String alias) async {
@@ -726,16 +847,76 @@ class YaadDb {
   }
 
   /// Adds a user account. Throws [StateError] when the name is taken.
-  static Future<Account> insertAccount(String name) async {
+  static Future<Account> insertAccount(String name,
+      {double openingBalance = 0}) async {
     final d = await db;
     final clean = name.trim();
     if (await accountNameExists(clean)) {
       throw StateError('Account "$clean" already exists');
     }
-    final a = Account.named(clean);
+    final a = Account.named(clean, openingBalance: openingBalance);
     await d.insert('accounts', a.toMap());
     await _audit(d, 'account', a.id, 'created', clean);
     return a;
+  }
+
+  /// Sets an account's opening balance (what it held before Yaad).
+  static Future<void> setOpeningBalance(String id, double amount) async {
+    final d = await db;
+    await d.update('accounts', {'openingBalance': amount},
+        where: 'id = ?', whereArgs: [id]);
+    await _audit(d, 'account', id, 'opening-balance', '$amount');
+  }
+
+  /// Balance per account id: opening balance + every transaction leg,
+  /// all time. Sign rules mirror the month sums exactly — money-in
+  /// kinds (receive / borrowIn / repayIn) add, money-out kinds (spend
+  /// / lendOut / repayOut) subtract, and a transfer subtracts from its
+  /// from-account and adds to its to-account, so parking in savings
+  /// raises the Savings balance and taking back lowers it again.
+  /// 'excluded' rows never count (same as the sums). Pure lending
+  /// records are not transactions, so they don't move balances —
+  /// exactly how the month sums treat them; their repayment
+  /// transactions do. Every account appears, even with no rows.
+  static Future<Map<String, double>> accountBalances() async {
+    final d = await db;
+    final balances = <String, double>{
+      for (final a in await accounts()) a.id: a.openingBalance
+    };
+    final rows = await d.rawQuery('''
+      SELECT accountId, toAccountId, kind, SUM(amount) s
+      FROM transactions
+      WHERE status != 'excluded'
+      GROUP BY accountId, toAccountId, kind''');
+    bool isIn(String kind) =>
+        kind == 'receive' || kind == 'borrowIn' || kind == 'repayIn';
+    for (final r in rows) {
+      final kind = (r['kind'] as String?) ?? '';
+      final amt = ((r['s'] as num?) ?? 0).toDouble();
+      final from = r['accountId'] as String?;
+      final to = r['toAccountId'] as String?;
+      if (kind == 'transfer') {
+        if (from != null && balances.containsKey(from)) {
+          balances[from] = balances[from]! - amt;
+        }
+        if (to != null && balances.containsKey(to)) {
+          balances[to] = balances[to]! + amt;
+        }
+      } else if (from != null && balances.containsKey(from)) {
+        balances[from] = balances[from]! + (isIn(kind) ? amt : -amt);
+      }
+    }
+    return balances;
+  }
+
+  /// Total across all accounts (openings + all legs).
+  static Future<double> totalBalance() async {
+    final Map<String, double> b = await accountBalances();
+    var total = 0.0;
+    for (final v in b.values) {
+      total += v;
+    }
+    return total;
   }
 
   /// Renames an account. Seeded accounts keep their id; the rename is
@@ -811,9 +992,11 @@ class YaadDb {
       'lending',
       'repayments',
       'aliases',
+      'custom_purposes',
       'audit'
     ]) {
       await d.delete(t);
     }
+    await refreshCustomPurposeRegistry();
   }
 }

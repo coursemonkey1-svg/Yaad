@@ -21,20 +21,26 @@ class Account {
   final String name;
   final bool customName;
   final int createdAt;
+  /// What the account held before Yaad started tracking it (v1.5).
+  /// Balance = opening + every transaction leg, all time. Default 0;
+  /// the user sets it when creating or editing the account.
+  final double openingBalance;
 
   const Account({
     required this.id,
     required this.name,
     this.customName = false,
     required this.createdAt,
+    this.openingBalance = 0,
   });
 
   /// A user-added account. User labels are always shown verbatim.
-  factory Account.named(String name) => Account(
+  factory Account.named(String name, {double openingBalance = 0}) => Account(
         id: _uuid.v4(),
         name: name.trim(),
         customName: true,
         createdAt: DateTime.now().millisecondsSinceEpoch,
+        openingBalance: openingBalance,
       );
 
   /// The three accounts every install starts with. Inserted with
@@ -60,6 +66,7 @@ class Account {
         'name': name,
         'customName': customName ? 1 : 0,
         'createdAt': createdAt,
+        'openingBalance': openingBalance,
       };
 
   factory Account.fromMap(Map<String, Object?> m) => Account(
@@ -67,6 +74,7 @@ class Account {
         name: m['name'] as String? ?? '',
         customName: ((m['customName'] as num?) ?? 0) != 0,
         createdAt: (m['createdAt'] as num?)?.toInt() ?? 0,
+        openingBalance: (m['openingBalance'] as num?)?.toDouble() ?? 0,
       );
 }
 

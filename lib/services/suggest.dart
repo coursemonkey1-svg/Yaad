@@ -1,5 +1,6 @@
 import '../data/db.dart';
 import '../models/alias.dart';
+import '../models/purposes.dart';
 import '../models/transaction.dart';
 
 /// A labelled suggestion: what the app thinks, and why.
@@ -68,7 +69,7 @@ class SuggestionService {
       final purpose = rows.first['purpose'] as String;
       final n = rows.first['c'] as int;
       return Suggestion(purpose,
-          'You chose "$purpose" for this merchant $n time${n == 1 ? '' : 's'} before');
+          'You chose "${purposeLabel(purpose)}" for this merchant $n time${n == 1 ? '' : 's'} before');
     }
 
     // 2) Alias known? Check what the alias was used for (same weighting).
