@@ -81,6 +81,19 @@ void main() {
       CREATE TABLE accounts(
         id TEXT PRIMARY KEY, name TEXT NOT NULL,
         customName INTEGER NOT NULL DEFAULT 0, createdAt INTEGER NOT NULL)''');
+    // A real v6 install HAS the three seed accounts (seeded when the
+    // table was created in the v5 era) — the replica must too, or it
+    // leaves the shared test DB with an empty accounts table and
+    // poisons every later suite (no upgrade step ever re-seeds).
+    final seedNow = DateTime.now().millisecondsSinceEpoch;
+    for (final (id, name) in [
+      ('meezan', 'Meezan'),
+      ('savings', 'Savings'),
+      ('cash', 'Cash'),
+    ]) {
+      await db.insert('accounts',
+          {'id': id, 'name': name, 'customName': 0, 'createdAt': seedNow});
+    }
     await db.execute('''
       CREATE TABLE audit(
         id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL,
