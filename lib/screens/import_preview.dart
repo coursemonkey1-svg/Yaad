@@ -130,7 +130,12 @@ class _ImportPreviewScreenState extends State<ImportPreviewScreen> {
                           style: Theme.of(context).textTheme.bodyMedium),
                     )
                   : ListView.builder(
-                      padding: const EdgeInsets.all(Gap.x1),
+                      // The Import button below is in-flow (Column +
+                      // SafeArea), so it can never cover a row; the
+                      // extra bottom padding just keeps the last row
+                      // breathing clear of it at full scroll.
+                      padding: const EdgeInsets.fromLTRB(
+                          Gap.x1, Gap.x1, Gap.x1, Gap.x2),
                       itemCount: _rows.length,
                       itemBuilder: (_, i) {
                         final r = _rows[i];

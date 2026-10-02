@@ -246,6 +246,18 @@ class _GateState extends State<Gate> with WidgetsBindingObserver {
   }
 }
 
+/// Whether the shell's "+ Add" FAB belongs on main-shell [tab]
+/// (0 Home, 1 Activity, 2 Udhaar, 3 Settings).
+///
+/// The FAB is a persistent overlay: on Settings it floated on top of
+/// working controls — the App lock toggle, the Smart suggestions row,
+/// and the end of the "Delete all my data" subtitle (user screenshots,
+/// build-24). Adding a transaction makes no sense from Settings, so
+/// the FAB simply does not exist there. Returning null from the
+/// Scaffold's floatingActionButton slot (see MainShell.build) removes
+/// the widget entirely — no phantom tap target is left behind.
+bool yaadFabVisibleForTab(int tab) => tab != 3;
+
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
   @override
@@ -361,6 +373,13 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   /// Auto-captured transactions also land in the inbox and raise one of
   /// Yaad's own phone notifications each (CaptureNotify handles both).
   Future<void> _drainCapture() async {
+    // First make the capture toggles tell the truth: if the OS-level
+    // permission/listener access behind a toggle was revoked outside
+    // the app (or a restored backup claims capture that was never
+    // granted on this phone), reconcileCaptureFlags turns the flag off
+    // before anything drains — and re-asserts the native queueing
+    // flags when the permission is really there.
+    await CaptureService.reconcileCaptureFlags();
     final (recorded, review) =
         await CaptureService.drainAndImport(promptContext: context);
     if (!mounted || recorded + review == 0) return;
@@ -458,16 +477,18 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        key: _fabKey,
-        onPressed: () => showModalBottomSheet(
-          context: context,
-          isScrollControlled: true,
-          builder: (_) => const QuickCaptureSheet(),
-        ).then((_) => appState.refresh()),
-        icon: const Icon(Icons.add),
-        label: Text(s.get('add')),
-      ),
+      floatingActionButton: yaadFabVisibleForTab(_index)
+          ? FloatingActionButton.extended(
+              key: _fabKey,
+              onPressed: () => showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) => const QuickCaptureSheet(),
+              ).then((_) => appState.refresh()),
+              icon: const Icon(Icons.add),
+              label: Text(s.get('add')),
+            )
+          : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,

@@ -79,7 +79,12 @@ class _ProScreenState extends State<ProScreen> {
     return Scaffold(
       appBar: AppBar(title: Text(s.get('yaadPro'))),
       body: ListView(
-        padding: const EdgeInsets.all(Gap.x3),
+        // Generous bottom padding: nothing at the end of the Pro list
+        // (fine print included) may sit under the system bar or any
+        // floating UI. Explicit padding replaces ListView's automatic
+        // safe-area padding, so the view inset is added explicitly.
+        padding: EdgeInsets.fromLTRB(Gap.x3, Gap.x3, Gap.x3,
+            Gap.x6 + MediaQuery.paddingOf(context).bottom),
         children: [
           Container(
             padding: const EdgeInsets.all(Gap.x3),

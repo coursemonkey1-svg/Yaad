@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:excel/excel.dart' hide Border;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -12,8 +13,10 @@ import 'package:yaad/l10n/strings.dart';
 import 'package:yaad/main.dart';
 import 'package:yaad/models/settings.dart';
 import 'package:yaad/models/transaction.dart';
+import 'package:yaad/screens/inbox.dart';
 import 'package:yaad/screens/onboarding.dart';
 import 'package:yaad/screens/pro.dart';
+import 'package:yaad/services/sms_capture.dart';
 import 'package:yaad/services/capture_inbox.dart';
 import 'package:yaad/services/importer.dart';
 import 'package:yaad/services/meezan_parser.dart';
@@ -465,6 +468,178 @@ void main() {
       // Let the abandoned parse's own 500ms timeout elapse so no timer
       // is left pending at teardown.
       await tester.pump(const Duration(seconds: 1));
+    });
+  });
+
+  group('FAB visibility per tab (build-24 screenshot issue)', () {
+    test('the Add FAB exists on Home/Activity/Udhaar, never on Settings',
+        () {
+      expect(yaadFabVisibleForTab(0), isTrue); // Home
+      expect(yaadFabVisibleForTab(1), isTrue); // Activity
+      expect(yaadFabVisibleForTab(2), isTrue); // Udhaar
+      expect(yaadFabVisibleForTab(3), isFalse); // Settings
+    });
+
+    testWidgets(
+        'shell: FAB present on Home, absent (no phantom target) on Settings',
+        (tester) async {
+      // Mock the share-intent plugin so MainShell.initState doesn't
+      // hit missing platform channels.
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+          const MethodChannel('receive_sharing_intent/messages'),
+          (call) async => null);
+      messenger.setMockStreamHandler(
+          const EventChannel('receive_sharing_intent/events-media'),
+          MockStreamHandler.inline(onListen: (args, events) {}));
+      // Mock the capture channel: reconcile + setters run on shell start.
+      messenger.setMockMethodCallHandler(const MethodChannel('yaad/capture'),
+          (call) async => null);
+
+      appState.settings =
+          const AppSettings(onboardingDone: true, tourSeen: true);
+      await tester.pumpWidget(const MaterialApp(home: MainShell()));
+      await tester.pump();
+      await tester.pump();
+
+      // Home: the FAB is there.
+      expect(find.byType(FloatingActionButton), findsOneWidget);
+      final fabCenter = tester.getCenter(find.byType(FloatingActionButton));
+
+      // Settings tab: no FAB widget at all — and a tap where the FAB
+      // used to float must NOT open the Add sheet (no phantom target).
+      // (IndexedStack keeps every tab in the tree, so nav destinations
+      // are tapped by icon, not by label text.)
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.pump();
+      // Scaffold animates the FAB out when it becomes null — advance
+      // past the exit animation before asserting it is really gone.
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(FloatingActionButton), findsNothing);
+
+      // Back on Home the FAB returns.
+      await tester.tap(find.byIcon(Icons.home_outlined));
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(FloatingActionButton), findsOneWidget);
+
+      // No phantom tap target: on Settings again (FAB gone), a tap at
+      // the FAB's old spot must NOT open the Add sheet. Done last:
+      // the tap lands on whatever Settings row lives there now, which
+      // is exactly the point — the row gets the tap, not a ghost FAB.
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(FloatingActionButton), findsNothing);
+      await tester.tapAt(fabCenter);
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('What happened?'), findsNothing);
+
+      // Let sqflite's internal 10s transaction watchdog timers (from
+      // the tab screens' stalled FakeAsync DB queries) fire before
+      // teardown, or the binding's no-pending-timers invariant fails.
+      await tester.pump(const Duration(seconds: 11));
+
+      messenger.setMockMethodCallHandler(
+          const MethodChannel('receive_sharing_intent/messages'), null);
+      messenger.setMockMethodCallHandler(
+          const MethodChannel('yaad/capture'), null);
+      appState.settings = const AppSettings();
+    });
+  });
+
+  group('capture toggle reconciliation', () {
+    const channel = MethodChannel('yaad/capture');
+    final calls = <MethodCall>[];
+
+    setUp(() {
+      calls.clear();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        return null;
+      });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+      appState.settings = const AppSettings();
+    });
+
+    bool? nativeFlag(String method) {
+      final hits = calls.where((c) => c.method == method);
+      if (hits.isEmpty) return null;
+      return hits.last.arguments['enabled'] as bool?;
+    }
+
+    test('switch ON but OS access revoked: flag turns OFF (no lying ON)',
+        () async {
+      appState.settings = const AppSettings(
+          smsCapture: true, notificationCapture: true);
+      await CaptureService.reconcileCaptureFlags(
+        smsPermissionGranted: () async => false, // revoked in OS settings
+        notificationAccessGranted: () async => true,
+      );
+      expect(appState.settings.smsCapture, isFalse);
+      expect(appState.settings.notificationCapture, isTrue);
+      // Native queueing follows the reconciled truth both ways.
+      expect(nativeFlag('setSmsEnabled'), isFalse);
+      expect(nativeFlag('setNotificationEnabled'), isTrue);
+    });
+
+    test('flags ON and access really granted: native side re-asserted',
+        () async {
+      appState.settings = const AppSettings(
+          smsCapture: true, notificationCapture: true);
+      await CaptureService.reconcileCaptureFlags(
+        smsPermissionGranted: () async => true,
+        notificationAccessGranted: () async => true,
+      );
+      expect(appState.settings.smsCapture, isTrue);
+      expect(appState.settings.notificationCapture, isTrue);
+      expect(nativeFlag('setSmsEnabled'), isTrue);
+      expect(nativeFlag('setNotificationEnabled'), isTrue);
+    });
+
+    test('flags OFF: native queueing is forced off too', () async {
+      appState.settings = const AppSettings();
+      await CaptureService.reconcileCaptureFlags(
+        smsPermissionGranted: () async => true,
+        notificationAccessGranted: () async => true,
+      );
+      expect(appState.settings.smsCapture, isFalse);
+      expect(appState.settings.notificationCapture, isFalse);
+      expect(nativeFlag('setSmsEnabled'), isFalse);
+      expect(nativeFlag('setNotificationEnabled'), isFalse);
+    });
+  });
+
+  group('inbox end-of-list clearance', () {
+    testWidgets('the inbox list carries generous bottom padding',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      await CaptureInbox.instance.add(
+          txnId: 'pad-test-txn',
+          merchant: 'PAD SHOP',
+          amount: 250,
+          time: DateTime(2026, 10, 1),
+          needsReview: false);
+      await tester.pumpWidget(const MaterialApp(home: InboxScreen()));
+      // Manual pumps: loading spinner + prefs futures; pumpAndSettle
+      // would spin on the CircularProgressIndicator.
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('PAD SHOP'), findsOneWidget);
+      final list = tester.widget<ListView>(find.byType(ListView));
+      expect(list.padding, isNotNull);
+      expect(list.padding!.resolve(TextDirection.ltr).bottom,
+          greaterThanOrEqualTo(80),
+          reason:
+              'last inbox row must clear the system bar / floating UI');
     });
   });
 

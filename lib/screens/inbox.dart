@@ -94,6 +94,16 @@ class _InboxScreenState extends State<InboxScreen> {
                   ),
                 )
               : ListView.separated(
+                  // End-of-list clearance: the last entry must be able
+                  // to scroll fully clear of the bottom system bar /
+                  // gesture area and of floating UI the size of the
+                  // shell's Add FAB (56 + its margins ≈ 88) — user
+                  // screenshots showed the FAB covering list content.
+                  // Providing an explicit padding replaces ListView's
+                  // automatic safe-area padding, so the view inset is
+                  // included here explicitly.
+                  padding: EdgeInsets.only(
+                      bottom: MediaQuery.paddingOf(context).bottom + 88),
                   itemCount: _items.length,
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (_, i) {
@@ -127,11 +137,13 @@ class _InboxScreenState extends State<InboxScreen> {
                           Text(appState.money(e.amount),
                               style:
                                   const TextStyle(fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 2),
                           e.needsReview
                               ? ActionChip(
                                   label: Text(s.get('needsReview')),
                                   visualDensity: VisualDensity.compact,
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
                                   onPressed: () => Navigator.of(context).push(
                                       MaterialPageRoute(
                                           builder: (_) =>
@@ -140,6 +152,8 @@ class _InboxScreenState extends State<InboxScreen> {
                               : Chip(
                                   label: Text(s.get('captureRecorded')),
                                   visualDensity: VisualDensity.compact,
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
                                 ),
                         ],
                       ),
