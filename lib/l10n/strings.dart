@@ -441,6 +441,14 @@ class Strings {
     'viewCompact': 'Compact',
     'sourceBankAlert': 'Bank alert',
     'sourceManual': 'Manual',
+    // Transaction detail view (v1.4)
+    'details': 'Details',
+    'sourceShare': 'Shared from bank app',
+    'sourceOcr': 'Receipt scan',
+    'sourceImport': 'Statement import',
+    'sourceSms': 'SMS alert',
+    'bankRef': 'Bank reference',
+    'voicePlayFailed': "Couldn't play the recording.",
     // Voice notes (v1.3)
     'voiceRecord': 'Record voice note',
     'voiceStop': 'Stop',
@@ -920,6 +928,14 @@ class Strings {
     'viewCompact': 'مختصر',
     'sourceBankAlert': 'بینک الرٹ',
     'sourceManual': 'دستی',
+    // Transaction detail view (v1.4)
+    'details': 'تفصیلات',
+    'sourceShare': 'بینک ایپ سے',
+    'sourceOcr': 'رسید اسکین',
+    'sourceImport': 'اسٹیٹمنٹ درآمد',
+    'sourceSms': 'SMS الرٹ',
+    'bankRef': 'بینک حوالہ',
+    'voicePlayFailed': 'ریکارڈنگ نہیں چلائی جا سکی۔',
     // Voice notes (v1.3)
     'voiceRecord': 'آواز کا نوٹ ریکارڈ کریں',
     'voiceStop': 'روکیں',

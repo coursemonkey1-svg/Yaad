@@ -9,7 +9,7 @@ import '../data/db.dart';
 import '../l10n/strings.dart';
 import '../main.dart';
 import '../models/transaction.dart';
-import '../screens/confirm.dart';
+import '../screens/transaction_view.dart';
 import 'capture_inbox.dart';
 import 'capture_payload.dart';
 import 'pro.dart';
@@ -66,8 +66,8 @@ class CaptureNotify {
     if (id != null) await openCapturedTxn(id);
   }
 
-  /// Opens the transaction behind a notification tap / inbox entry so the
-  /// user can add purpose, note, or person — same editor as everywhere.
+  /// Opens the transaction behind a notification tap / inbox entry: the
+  /// read-only detail view, with the editor one explicit Edit tap away.
   static Future<void> openCapturedTxn(String txnId) async {
     // App lock is a real lock: never auto-open a transaction above it.
     // The user lands on the lock screen; the inbox bell still works after.
@@ -77,7 +77,7 @@ class CaptureNotify {
     final nav = navigatorKey.currentState;
     if (txn == null || nav == null) return;
     await nav.push(
-        MaterialPageRoute(builder: (_) => ConfirmScreen(editing: txn)));
+        MaterialPageRoute(builder: (_) => TransactionViewScreen(txn: txn)));
   }
 
   /// Called after every drain that captured something: one inbox entry

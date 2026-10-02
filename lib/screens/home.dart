@@ -11,7 +11,7 @@ import '../theme.dart';
 import '../widgets/atoms.dart';
 import 'review.dart';
 import 'summary.dart';
-import 'confirm.dart';
+import 'transaction_view.dart';
 import 'timeline.dart';
 
 /// Dashboard: one question per glance (§3).
@@ -411,7 +411,7 @@ class _TxnRow extends StatelessWidget {
           child: InkWell(
             onTap: onTap ??
                 () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => ConfirmScreen(editing: txn))),
+                    builder: (_) => TransactionViewScreen(txn: txn))),
             borderRadius: BorderRadius.circular(Radius.chip),
             child: Container(
               padding: const EdgeInsets.symmetric(

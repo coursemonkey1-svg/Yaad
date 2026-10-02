@@ -4,12 +4,12 @@ import '../data/db.dart';
 import '../l10n/strings.dart';
 import '../main.dart';
 import '../services/capture_inbox.dart';
-import 'confirm.dart';
+import 'transaction_view.dart';
 import 'review.dart';
 
 /// In-app inbox of auto-captured bank alerts (§v1.3 autocap).
-/// Tapping an entry opens the transaction editor so the user can add
-/// purpose, note, or person — the same ConfirmScreen as everywhere else.
+/// Tapping an entry opens the read-only detail view; the editor is one
+/// explicit Edit tap away from there.
 class InboxScreen extends StatefulWidget {
   const InboxScreen({super.key});
 
@@ -50,7 +50,7 @@ class _InboxScreenState extends State<InboxScreen> {
       return;
     }
     await Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => ConfirmScreen(editing: txn)));
+        MaterialPageRoute(builder: (_) => TransactionViewScreen(txn: txn)));
     if (mounted) setState(() {});
   }
 
