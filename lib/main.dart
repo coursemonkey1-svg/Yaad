@@ -190,6 +190,12 @@ class _GateState extends State<Gate> with WidgetsBindingObserver {
         // CaptureNotify instead of opening above the lock screen —
         // honour it now that the user is really in.
         unawaited(CaptureNotify.openPendingAfterUnlock());
+        // Same story for a notification-capture opt-in the user
+        // finished in system settings before the re-lock: the Gate
+        // replaced the whole shell (and the Settings screen tracking
+        // the opt-in) with this lock screen, so complete it here from
+        // the persisted pending flag.
+        unawaited(CaptureService.completePendingNotifOptIn());
       }
     } on PlatformException catch (e) {
       // The prompt couldn't be shown. Stay locked and explain what to do —
@@ -373,7 +379,14 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   /// Auto-captured transactions also land in the inbox and raise one of
   /// Yaad's own phone notifications each (CaptureNotify handles both).
   Future<void> _drainCapture() async {
-    // First make the capture toggles tell the truth: if the OS-level
+    // First finish any notification-capture opt-in the user completed
+    // in system settings while away (persisted pending flag — it
+    // survives this shell being torn down by the app-lock Gate). This
+    // must run BEFORE reconciliation: reconcile owns the flags only
+    // once no opt-in is mid-flight (and skips the notification channel
+    // while one is pending).
+    await CaptureService.completePendingNotifOptIn();
+    // Then make the capture toggles tell the truth: if the OS-level
     // permission/listener access behind a toggle was revoked outside
     // the app (or a restored backup claims capture that was never
     // granted on this phone), reconcileCaptureFlags turns the flag off

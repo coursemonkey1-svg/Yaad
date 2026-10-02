@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -80,6 +81,17 @@ void main() {
 
     testWidgets('first notification toggle-ON shows the guide too',
         (tester) async {
+      // Model the OS answer "notification access NOT granted": since
+      // build-26 the toggle checks the OS grant first (an already-
+      // granted user skips the dialogs entirely), and an unregistered
+      // channel never answers inside the FakeAsync zone, which would
+      // hang the toggle before the guide could show.
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(const MethodChannel('yaad/capture'),
+              (call) async {
+        if (call.method == 'isNotificationAccessGranted') return false;
+        return null;
+      });
       await _pumpSettings(tester);
       await _scrollTo(tester, 'Bank notifications');
       await tester.tap(find.text('Bank notifications'));
@@ -92,6 +104,9 @@ void main() {
       expect(appState.settings.notifGuideSeen, isTrue);
       expect(appState.settings.smsGuideSeen, isFalse);
       expect(appState.settings.notificationCapture, isFalse);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(const MethodChannel('yaad/capture'),
+              null);
     });
 
     test('Urdu has every permission-guide key', () {

@@ -713,7 +713,14 @@ class _CaptureSection extends StatefulWidget {
 
 class _CaptureSectionState extends State<_CaptureSection>
     with WidgetsBindingObserver {
-  bool _awaitingNotifReturn = false;
+  /// True while THIS section has the user away in system settings for
+  /// a notification opt-in it started. Only used to decide whether the
+  /// 'notifAccessNeeded' nudge belongs to this screen on resume — the
+  /// durable record of the pending opt-in is
+  /// [AppSettings.notifOptInPending], which survives this State being
+  /// disposed (the app-lock Gate tears the whole shell down on
+  /// re-lock, which is what used to lose the opt-in entirely).
+  bool _sentToNotifSettings = false;
 
   @override
   void initState() {
@@ -735,9 +742,55 @@ class _CaptureSectionState extends State<_CaptureSection>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _awaitingNotifReturn) {
-      _awaitingNotifReturn = false;
-      _finishNotifOptIn();
+    if (state == AppLifecycleState.resumed) {
+      _resumeNotifOptIn();
+    }
+  }
+
+  /// The user came back from system settings: finish the pending
+  /// notification opt-in (the persisted flag, completed by
+  /// [CaptureService.completePendingNotifOptIn] — the shell's resume
+  /// pass and the Gate's unlock pass call it too, first one wins).
+  /// If the grant is still missing and it was this screen that sent
+  /// the user away, nudge once with a retry.
+  Future<void> _resumeNotifOptIn() async {
+    final wasMine = _sentToNotifSettings;
+    _sentToNotifSettings = false;
+    final outcome = await CaptureService.completePendingNotifOptIn();
+    if (!mounted) return;
+    // Outcome may be `none` because the shell's resume pass resolved
+    // the pending flag first; fall back to the visible truth.
+    final enabled = outcome == NotifOptInOutcome.enabled ||
+        appState.settings.notificationCapture;
+    if (enabled || !wasMine) return;
+    final st = Strings(appState.settings.language);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(st.get('notifAccessNeeded')),
+      action: SnackBarAction(
+          label: st.get('openSettings'),
+          onPressed: _retryNotifSettings),
+    ));
+  }
+
+  /// Snackbar retry: re-arm the pending opt-in and open system
+  /// settings again — and if even that fails, say how to get there
+  /// manually instead of doing nothing.
+  Future<void> _retryNotifSettings() async {
+    await appState
+        .update(appState.settings.copyWith(notifOptInPending: true));
+    _sentToNotifSettings = true;
+    await _openNotifSettingsOrExplain();
+  }
+
+  /// Opens system notification settings; on failure shows the manual
+  /// path ('notifOpenSettingsFailed'). A button that silently does
+  /// nothing reads as a broken app.
+  Future<void> _openNotifSettingsOrExplain() async {
+    final opened = await CaptureService.openNotificationSettings();
+    if (!opened && mounted) {
+      final st = Strings(appState.settings.language);
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(st.get('notifOpenSettingsFailed'))));
     }
   }
 
@@ -836,9 +889,19 @@ class _CaptureSectionState extends State<_CaptureSection>
   Future<void> _toggleNotif(bool on) async {
     final st = Strings(appState.settings.language);
     if (!on) {
-      await appState.update(
-          appState.settings.copyWith(notificationCapture: false));
+      await appState.update(appState.settings
+          .copyWith(notificationCapture: false, notifOptInPending: false));
       await CaptureService.setNotificationEnabled(false);
+      return;
+    }
+    // Access already granted (turned on earlier in system settings,
+    // or left over from a previous opt-in): turn capture straight on.
+    // Checking this FIRST matters — the old flow showed the guide and
+    // rationale dialog before ever checking, so a user who had
+    // already granted access got the whole dialog loop again and the
+    // toggle could never land.
+    if (await CaptureService.isNotificationAccessGranted()) {
+      await _enableNotif();
       return;
     }
     // Restricted-settings guide on first enable (sideloaded builds).
@@ -862,31 +925,20 @@ class _CaptureSectionState extends State<_CaptureSection>
     if (await CaptureService.isNotificationAccessGranted()) {
       await _enableNotif();
     } else {
-      _awaitingNotifReturn = true;
-      await CaptureService.openNotificationSettings();
-    }
-  }
-
-  Future<void> _finishNotifOptIn() async {
-    final st = Strings(appState.settings.language);
-    if (await CaptureService.isNotificationAccessGranted()) {
-      await _enableNotif();
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(st.get('notifAccessNeeded')),
-          action: SnackBarAction(
-              label: st.get('openSettings'),
-              onPressed: () =>
-                  CaptureService.openNotificationSettings()),
-        ));
-      }
+      // Persist the pending opt-in BEFORE leaving for system
+      // settings: widget state would not survive the trip (the
+      // app-lock Gate can tear this screen down on re-lock), the
+      // settings flag does. Resume/unlock passes complete it.
+      await appState
+          .update(appState.settings.copyWith(notifOptInPending: true));
+      _sentToNotifSettings = true;
+      await _openNotifSettingsOrExplain();
     }
   }
 
   Future<void> _enableNotif() async {
-    await appState.update(
-        appState.settings.copyWith(notificationCapture: true));
+    await appState.update(appState.settings
+        .copyWith(notificationCapture: true, notifOptInPending: false));
     await CaptureService.setNotificationEnabled(true);
     await CaptureService.drainAndImport();
   }

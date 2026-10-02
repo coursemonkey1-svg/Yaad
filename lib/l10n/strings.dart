@@ -353,6 +353,8 @@ class Strings {
         'SMS permission was not granted — bank SMS capture stays off. You can try again anytime.',
     'notifAccessNeeded':
         'Notification access is still off. Turn it on to capture bank notifications.',
+    'notifOpenSettingsFailed':
+        'Couldn\'t open system settings — please open Settings → Apps → Yaad → Notification access and turn Yaad on.',
     'importStatementSub': 'CSV, Excel, text or PDF — duplicates skipped',
     'backupSub': 'Full backup file — yours to keep',
     'exportCsvSub': 'Open in Excel or Google Sheets',
@@ -917,6 +919,8 @@ class Strings {
         'SMS کی اجازت نہیں ملی — بینک SMS کیپچر بند رہے گا۔ آپ کسی بھی وقت دوبارہ کوشش کر سکتے ہیں۔',
     'notifAccessNeeded':
         'نوٹیفیکیشن رسائی ابھی بند ہے۔ بینک نوٹیفیکیشنز پکڑنے کے لیے اسے چالو کریں۔',
+    'notifOpenSettingsFailed':
+        'سسٹم سیٹنگز نہیں کھل سکیں — براہ کرم سیٹنگز ← ایپس ← Yaad ← نوٹیفیکیشن رسائی کھولیں اور Yaad کو چالو کریں۔',
     'importStatementSub': 'CSV، Excel، ٹیکسٹ یا PDF — دہرائی گئی چھوڑ دیں',
     'backupSub': 'مکمل بیک اپ فائل — آپ کی اپنی',
     'exportCsvSub': 'Excel یا Google Sheets میں کھولیں',
