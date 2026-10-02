@@ -72,6 +72,11 @@ class YaadTransaction {
   final TxnStatus status;
   final String? personId; // who it was with, if anyone
   final String? linkedLendingId; // loan this settles / repays
+  /// Which money account this belongs to ('meezan' / 'savings' /
+  /// 'cash' / a user-added id). Nullable: NULL means "the default
+  /// account" — callers pass the default explicitly, and the v4→v5
+  /// migration backfills every existing row.
+  final String? accountId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -95,6 +100,7 @@ class YaadTransaction {
     this.status = TxnStatus.confirmed,
     this.personId,
     this.linkedLendingId,
+    this.accountId,
     DateTime? createdAt,
     DateTime? updatedAt,
   })  : id = id ?? _uuid.v4(),
@@ -164,6 +170,7 @@ class YaadTransaction {
     TxnStatus? status,
     String? personId,
     String? linkedLendingId,
+    String? accountId,
   }) {
     return YaadTransaction(
       id: id,
@@ -187,6 +194,7 @@ class YaadTransaction {
       status: status ?? this.status,
       personId: personId ?? this.personId,
       linkedLendingId: linkedLendingId ?? this.linkedLendingId,
+      accountId: accountId ?? this.accountId,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );
@@ -212,6 +220,7 @@ class YaadTransaction {
         'status': status.name,
         'personId': personId,
         'linkedLendingId': linkedLendingId,
+        'accountId': accountId,
         'createdAt': createdAt.millisecondsSinceEpoch,
         'updatedAt': updatedAt.millisecondsSinceEpoch,
       };
@@ -252,6 +261,7 @@ class YaadTransaction {
       status: TxnStatus.values.byName(m['status'] as String? ?? 'confirmed'),
       personId: m['personId'] as String?,
       linkedLendingId: m['linkedLendingId'] as String?,
+      accountId: m['accountId'] as String?,
       createdAt: DateTime.fromMillisecondsSinceEpoch(
           m['createdAt'] as int? ?? DateTime.now().millisecondsSinceEpoch),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(

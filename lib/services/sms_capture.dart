@@ -108,6 +108,7 @@ class CaptureService {
         status: needsReview
             ? TxnStatus.needsReview
             : TxnStatus.confirmed,
+        accountId: appState.settings.defaultAccountId,
       );
       await YaadDb.insertTxn(txn);
       out.add((txn: txn, needsReview: needsReview));

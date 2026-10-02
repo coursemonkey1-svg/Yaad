@@ -5,6 +5,7 @@ import 'package:excel/excel.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/db.dart';
+import '../models/account.dart';
 import '../models/transaction.dart';
 import 'meezan_parser.dart';
 import 'ocr.dart';
@@ -364,9 +365,11 @@ class StatementImporter {
 
   /// Writes the user's confirmed selection. Remembers the column
   /// mapping so the next identical layout is zero-setup.
+  /// [accountId] tags every imported row; when null it falls back to
+  /// the default (Meezan) account — imported rows are never account-less.
   Future<ImportReport> commitRows(
       List<ParsedRow> selected, String mappingSignature,
-      {Map<String, int>? mapping}) async {
+      {Map<String, int>? mapping, String? accountId}) async {
     int imported = 0, duplicates = 0, failed = 0;
     final errors = <String>[];
     for (final row in selected) {
@@ -394,6 +397,7 @@ class StatementImporter {
           bankReference: row.reference,
           source: TxnSource.statementImport,
           status: TxnStatus.needsReview,
+          accountId: accountId ?? Account.seedMeezan,
         ));
         imported++;
       } catch (e) {

@@ -12,6 +12,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../data/db.dart';
 import '../l10n/strings.dart';
 import '../main.dart';
+import '../models/account.dart';
 import '../models/alias.dart';
 import '../models/custom_purpose.dart';
 import '../models/purposes.dart';
@@ -57,6 +58,9 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
   List<CustomPurpose> _customs = [];
   late TxnKind _kind;
   DateTime _date = DateTime.now();
+  // Money account: prefilled with the default, one tap to switch.
+  List<Account> _accounts = [];
+  String? _accountId;
   bool _saving = false;
   // Voice note state: recording + speech-to-text run in parallel.
   // `_voiceText` (transcript) is a dedicated field — NEVER mixed into
@@ -149,6 +153,20 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       ];
     }
     _loadCustoms();
+    _accountId = e?.accountId ?? appState.settings.defaultAccountId;
+    _loadAccounts();
+  }
+
+  /// The picker list: always real accounts; the preferred id (the edited
+  /// transaction's, or the default) wins when it still exists.
+  Future<void> _loadAccounts() async {
+    final accounts = await YaadDb.accounts();
+    if (!mounted) return;
+    setState(() {
+      _accounts = accounts;
+      _accountId = resolveDefaultAccountId(
+          accounts, _accountId ?? appState.settings.defaultAccountId);
+    });
   }
 
   Future<void> _loadCustoms() async {
@@ -571,6 +589,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         note: _noteCtrl.text.trim(),
         audioPath: audioPath,
         voiceNote: voiceNote,
+        accountId: _accountId,
         status: needsReview ? TxnStatus.needsReview : TxnStatus.confirmed,
       ));
     } else {
@@ -604,6 +623,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         note: _noteCtrl.text.trim(),
         audioPath: audioPath,
         voiceNote: voiceNote,
+        accountId: _accountId,
         receiptPath: r?.imagePath,
         bankReference: r?.reference,
         source: r != null
@@ -684,6 +704,25 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
             ],
             selected: {_kind},
             onSelectionChanged: (v) => _setKind(v.first),
+          ),
+          const SizedBox(height: Gap.x1 + 4),
+          // Account picker: which money this is. Prefilled with the
+          // default — one tap to switch, then Save as usual (≤ 2 taps).
+          Text(s.get('account'),
+              style: const TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: Gap.x1),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final a in _accounts)
+                ChoiceChip(
+                  label: Text(a.displayName(s)),
+                  selected: _accountId == a.id,
+                  onSelected: (_) =>
+                      setState(() => _accountId = a.id),
+                ),
+            ],
           ),
           const SizedBox(height: Gap.x1 + 4),
           Row(

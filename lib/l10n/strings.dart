@@ -333,6 +333,9 @@ class Strings {
     'proActive': 'Pro is active on this phone — thank you.',
     'proGet': 'Unlock PDF statements, backups, extras.',
     'importReading': 'Reading your statement…',
+    'importReadFailTitle': 'Couldn’t read that file',
+    'importReadFailBody':
+        'Yaad couldn’t read this file — nothing was added and your data is safe.\n\nTry again, or try a different file. A CSV or Excel statement from your bank app works best.',
     'pdfNoTextTitle': 'Couldn’t read this PDF',
     'pdfNoTextBody':
         'Yaad couldn’t find any text in this PDF — it’s likely a scanned statement (photos of pages, not real text). Nothing was imported; your data is safe.\n\nTo import from Meezan:\n1. Open the Meezan app → Accounts → choose your account.\n2. Open Statement / Transaction history and pick your dates.\n3. Tap Download or Share → choose CSV (or Excel).\n4. Back in Yaad: Settings → Import statement → pick that file.\n\nCSV and Excel always import cleanly.',
@@ -465,6 +468,33 @@ class Strings {
     'captureNotifSettingsBody':
         'Notifications are off for Yaad. Turn them on in Settings to hear about auto-captured bank alerts.',
     'captureTxnGone': 'That transaction was deleted.',
+    // Money accounts (v1.4): Meezan / Savings / Cash + the user's own.
+    'accounts': 'Accounts',
+    'myAccounts': 'My accounts',
+    'myAccountsSub': 'Where your money lives — Meezan, savings, cash',
+    'account': 'Account',
+    'accountName_meezan': 'Meezan',
+    'accountName_savings': 'Savings',
+    'accountName_cash': 'Cash',
+    'accountTxns': '{n} transactions',
+    'addAccount': 'Add account',
+    'accountNameHint': 'e.g. Holiday fund, HBL',
+    'accountExists': 'That account already exists',
+    'accountAdded': 'Added "{name}"',
+    'rename': 'Rename',
+    'accountRenamed': 'Renamed to "{name}"',
+    'deleteAccountTitle': 'Delete account?',
+    'deleteAccountBody':
+        'Delete "{name}"? Its transactions move to {default} — nothing is ever deleted.',
+    'accountDeleted':
+        'Deleted "{name}". Its transactions moved to {default}.',
+    'setAsDefault': 'Set as default',
+    'defaultAccount': 'Default',
+    'defaultAccountSub':
+        'New entries land in the default account unless you pick another one.',
+    'accountFilter': 'Account',
+    'atLeastOneAccount': 'Keep at least one account.',
+    'emptyAccountName': 'Give the account a name first.',
   };
 
   static const _ur = <String, String>{
@@ -782,6 +812,9 @@ class Strings {
     'proActive': 'اس فون پر پرو فعال ہے — شکریہ۔',
     'proGet': 'PDF اسٹیٹمنٹس، بیک اپ، اضافی فیچرز کھولیں۔',
     'importReading': 'آپ کی اسٹیٹمنٹ پڑھی جا رہی ہے…',
+    'importReadFailTitle': 'یہ فائل پڑھی نہیں جا سکی',
+    'importReadFailBody':
+        'یاد یہ فائل نہیں پڑھ سکی — کچھ بھی شامل نہیں ہوا اور آپ کا ڈیٹا محفوظ ہے۔\n\nدوبارہ کوشش کریں، یا کوئی دوسری فائل آزمائیں۔ آپ کے بینک ایپ سے CSV یا Excel اسٹیٹمنٹ بہترین رہتی ہے۔',
     'pdfNoTextTitle': 'یہ PDF پڑھی نہیں جا سکی',
     'pdfNoTextBody':
         'یاد کو اس PDF میں کوئی متن نہیں ملا — یہ شاید اسکین شدہ اسٹیٹمنٹ ہے (صفحات کی تصویریں، اصل متن نہیں)۔ کچھ درآمد نہیں ہوا؛ آپ کا ڈیٹا محفوظ ہے۔\n\nمیزان سے درآمد کے لیے:\n1. میزان ایپ کھولیں → اکاؤنٹس → اپنا اکاؤنٹ چنیں۔\n2. اسٹیٹمنٹ / ٹرانزیکشن ہسٹری کھولیں اور تاریخیں چنیں۔\n3. ڈاؤن لوڈ یا شیئر دبائیں → CSV (یا Excel) چنیں۔\n4. واپس یاد میں: سیٹنگز → اسٹیٹمنٹ درآمد کریں → وہ فائل چنیں۔\n\nCSV اور Excel ہمیشہ صاف درآمد ہوتے ہیں۔',
@@ -914,6 +947,33 @@ class Strings {
     'captureNotifSettingsBody':
         'یاد کے لیے اطلاعات بند ہیں۔ خودکار بینک الرٹس کی خبر کے لیے انہیں سیٹنگز میں آن کریں۔',
     'captureTxnGone': 'یہ ٹرانزیکشن حذف کر دی گئی تھی۔',
+    // Money accounts (v1.4): Meezan / Savings / Cash + the user's own.
+    'accounts': 'کھاتے',
+    'myAccounts': 'میرے کھاتے',
+    'myAccountsSub': 'آپ کے پیسے کہاں ہیں — میزان، بچت، نقد',
+    'account': 'کھاتہ',
+    'accountName_meezan': 'میزان',
+    'accountName_savings': 'بچت',
+    'accountName_cash': 'نقد',
+    'accountTxns': '{n} لین دین',
+    'addAccount': 'کھاتہ شامل کریں',
+    'accountNameHint': 'مثلاً چھٹیوں کا فنڈ، HBL',
+    'accountExists': 'یہ کھاتہ پہلے سے موجود ہے',
+    'accountAdded': '"{name}" شامل ہو گیا',
+    'rename': 'نام بدلیں',
+    'accountRenamed': 'نام بدل کر "{name}" کر دیا',
+    'deleteAccountTitle': 'کھاتہ حذف کریں؟',
+    'deleteAccountBody':
+        '"{name}" حذف کریں؟ اس کے لین دین {default} میں چلے جائیں گے — کچھ بھی حذف نہیں ہوگا۔',
+    'accountDeleted':
+        '"{name}" حذف ہو گیا۔ اس کے لین دین {default} میں چلے گئے۔',
+    'setAsDefault': 'بنیادی بنائیں',
+    'defaultAccount': 'بنیادی',
+    'defaultAccountSub':
+        'نئے اندراجات بنیادی کھاتے میں جائیں گے جب تک آپ کوئی اور کھاتہ نہ چنیں۔',
+    'accountFilter': 'کھاتہ',
+    'atLeastOneAccount': 'کم از کم ایک کھاتہ رکھیں۔',
+    'emptyAccountName': 'پہلے کھاتے کا نام لکھیں۔',
   };
 
   /// Localised 3-letter month abbreviation for summary/review titles.

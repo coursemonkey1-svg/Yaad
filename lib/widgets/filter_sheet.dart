@@ -2,25 +2,30 @@ import 'package:flutter/material.dart';
 
 import '../data/db.dart';
 import '../l10n/strings.dart';
+import '../models/account.dart';
 import '../models/custom_purpose.dart';
 import '../models/purposes.dart';
 import '../models/transaction.dart';
 import '../theme.dart';
 import 'purpose_dialogs.dart';
 
-/// The current filter state. Purposes are multi-select; direction stays
-/// single-select (All / Money out / Money in). Filters combine:
-/// direction AND (any selected purpose) AND search text.
+/// The current filter state. Purposes and accounts are multi-select;
+/// direction stays single-select (All / Money out / Money in).
+/// Filters combine: direction AND (any selected purpose)
+/// AND (any selected account) AND search text.
 class FilterSelection {
   final Set<String> purposes;
   final TxnDirection? direction;
+  final Set<String> accountIds;
 
-  const FilterSelection({this.purposes = const {}, this.direction});
+  const FilterSelection(
+      {this.purposes = const {}, this.direction, this.accountIds = const {}});
 
-  bool get isEmpty => purposes.isEmpty && direction == null;
+  bool get isEmpty =>
+      purposes.isEmpty && direction == null && accountIds.isEmpty;
 
   int get activeCount =>
-      purposes.length + (direction != null ? 1 : 0);
+      purposes.length + (direction != null ? 1 : 0) + accountIds.length;
 }
 
 /// Bottom sheet with the Activity filters. Applies live: every toggle
@@ -28,12 +33,15 @@ class FilterSelection {
 /// while it is still open.
 ///
 /// Sections: Direction (single) → Purpose (multi) → My purposes (multi,
-/// long-press to delete) → Received from (multi) → Clear all.
+/// long-press to delete) → Received from (multi) → Account (multi) →
+/// Clear all.
 class ActivityFilterSheet extends StatefulWidget {
   final Strings s;
   final Set<String> initialPurposes;
   final TxnDirection? initialDirection;
+  final Set<String> initialAccounts;
   final List<CustomPurpose> customs;
+  final List<Account> accounts;
   final ValueChanged<FilterSelection> onChanged;
 
   const ActivityFilterSheet({
@@ -41,7 +49,9 @@ class ActivityFilterSheet extends StatefulWidget {
     required this.s,
     required this.initialPurposes,
     required this.initialDirection,
+    required this.initialAccounts,
     required this.customs,
+    required this.accounts,
     required this.onChanged,
   });
 
@@ -52,6 +62,7 @@ class ActivityFilterSheet extends StatefulWidget {
 class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
   late Set<String> _purposes;
   late TxnDirection? _direction;
+  late Set<String> _accounts;
   late List<CustomPurpose> _customs;
 
   @override
@@ -59,11 +70,14 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
     super.initState();
     _purposes = Set.of(widget.initialPurposes);
     _direction = widget.initialDirection;
+    _accounts = Set.of(widget.initialAccounts);
     _customs = List.of(widget.customs);
   }
 
-  void _emit() => widget.onChanged(
-      FilterSelection(purposes: Set.of(_purposes), direction: _direction));
+  void _emit() => widget.onChanged(FilterSelection(
+      purposes: Set.of(_purposes),
+      direction: _direction,
+      accountIds: Set.of(_accounts)));
 
   void _togglePurpose(String id) {
     setState(() {
@@ -71,6 +85,17 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
         _purposes.remove(id);
       } else {
         _purposes.add(id);
+      }
+    });
+    _emit();
+  }
+
+  void _toggleAccount(String id) {
+    setState(() {
+      if (_accounts.contains(id)) {
+        _accounts.remove(id);
+      } else {
+        _accounts.add(id);
       }
     });
     _emit();
@@ -85,6 +110,7 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
     setState(() {
       _purposes.clear();
       _direction = null;
+      _accounts.clear();
     });
     _emit();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -190,6 +216,15 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
                         _purposeChip(p.id, p.label, p.icon),
                     ],
                   ),
+                  _sectionTitle(s.get('accountFilter')),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final a in widget.accounts)
+                        _accountChip(a),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -222,6 +257,16 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
       onSelected: (_) => _togglePurpose(id),
     );
   }
+
+  Widget _accountChip(Account a) {
+    return FilterChip(
+      label: Text(a.displayName(widget.s)),
+      avatar:
+          const Icon(Icons.account_balance_wallet_outlined, size: 18),
+      selected: _accounts.contains(a.id),
+      onSelected: (_) => _toggleAccount(a.id),
+    );
+  }
 }
 
 /// Opens the filter sheet. Small-screen safe: scroll-controlled and the
@@ -231,7 +276,9 @@ Future<void> showActivityFilterSheet(
   required Strings s,
   required Set<String> initialPurposes,
   required TxnDirection? initialDirection,
+  required Set<String> initialAccounts,
   required List<CustomPurpose> customs,
+  required List<Account> accounts,
   required ValueChanged<FilterSelection> onChanged,
 }) {
   return showModalBottomSheet(
@@ -243,7 +290,9 @@ Future<void> showActivityFilterSheet(
         s: s,
         initialPurposes: initialPurposes,
         initialDirection: initialDirection,
+        initialAccounts: initialAccounts,
         customs: customs,
+        accounts: accounts,
         onChanged: onChanged,
       ),
     ),
