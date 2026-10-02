@@ -77,6 +77,11 @@ class YaadTransaction {
   /// account" — callers pass the default explicitly, and the v4→v5
   /// migration backfills every existing row.
   final String? accountId;
+  /// For transfers only: the account the money moved TO. A savings
+  /// "add" is accountId = Meezan, toAccountId = savings; a "take
+  /// back" is the reverse. NULL for every non-transfer row (and for
+  /// transfers whose destination is unknown, e.g. pre-v1.4 rows).
+  final String? toAccountId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -101,6 +106,7 @@ class YaadTransaction {
     this.personId,
     this.linkedLendingId,
     this.accountId,
+    this.toAccountId,
     DateTime? createdAt,
     DateTime? updatedAt,
   })  : id = id ?? _uuid.v4(),
@@ -171,6 +177,7 @@ class YaadTransaction {
     String? personId,
     String? linkedLendingId,
     String? accountId,
+    String? toAccountId,
   }) {
     return YaadTransaction(
       id: id,
@@ -195,6 +202,7 @@ class YaadTransaction {
       personId: personId ?? this.personId,
       linkedLendingId: linkedLendingId ?? this.linkedLendingId,
       accountId: accountId ?? this.accountId,
+      toAccountId: toAccountId ?? this.toAccountId,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );
@@ -221,6 +229,7 @@ class YaadTransaction {
         'personId': personId,
         'linkedLendingId': linkedLendingId,
         'accountId': accountId,
+        'toAccountId': toAccountId,
         'createdAt': createdAt.millisecondsSinceEpoch,
         'updatedAt': updatedAt.millisecondsSinceEpoch,
       };
@@ -262,6 +271,7 @@ class YaadTransaction {
       personId: m['personId'] as String?,
       linkedLendingId: m['linkedLendingId'] as String?,
       accountId: m['accountId'] as String?,
+      toAccountId: m['toAccountId'] as String?,
       createdAt: DateTime.fromMillisecondsSinceEpoch(
           m['createdAt'] as int? ?? DateTime.now().millisecondsSinceEpoch),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(

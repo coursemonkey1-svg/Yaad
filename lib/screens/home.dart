@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../data/db.dart';
 import '../l10n/strings.dart';
@@ -14,6 +15,16 @@ import 'summary.dart';
 import 'confirm.dart';
 import 'timeline.dart';
 
+/// "Left" for the month: what came in, minus what went out, minus
+/// what got parked in savings. Parked money isn't spendable, so it
+/// counts as used; taking it back frees it again. A negative number
+/// is shown honestly — no jargon, no scary styling.
+double monthLeft(
+        {required double received,
+        required double spent,
+        required double parked}) =>
+    received - spent - parked;
+
 /// Dashboard: one question per glance (§3).
 /// Spent this month, received, who owes you / you owe, needs-your-eye,
 /// recent activity. Lending never mixes into spending (§2).
@@ -22,12 +33,34 @@ class HomeScreen extends StatelessWidget {
   final VoidCallback? onGoToUdhaar;
   const HomeScreen({super.key, this.onGoToUdhaar});
 
-  Future<_Dash> _load() async {
+  Future<_Dash> _load(Strings s) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final monthMs = appState.startOfMonthMs();
 
     final monthSpent = await YaadDb.sumSpent(monthMs, nowMs);
     final monthReceived = await YaadDb.sumReceived(monthMs, nowMs);
+    // "Left" = what came in this month, minus what went out, minus
+    // what got parked in savings. Parked money isn't spendable, so it
+    // counts as used for the month; taking it back frees it again.
+    final monthParked = await YaadDb.savingsNet(monthMs, nowMs);
+    final left = monthLeft(
+        received: monthReceived, spent: monthSpent, parked: monthParked);
+
+    // Savings: the backup stash. A single transfer row carries both
+    // legs (accountId = from, toAccountId = to), so total = in − out.
+    final savingsTotal = await YaadDb.savingsTotal();
+    final accounts = await YaadDb.accounts();
+    Account? byId(String id) {
+      for (final a in accounts) {
+        if (a.id == id) return a;
+      }
+      return null;
+    }
+
+    final savingsAccount = byId(Account.seedSavings);
+    final defaultId =
+        resolveDefaultAccountId(accounts, appState.settings.defaultAccountId);
+    final defaultAccount = byId(defaultId);
     final reviewCount =
         await YaadDb.countByStatus(TxnStatus.needsReview.name);
 
@@ -58,12 +91,18 @@ class HomeScreen extends StatelessWidget {
     return _Dash(
       monthSpent: monthSpent,
       monthReceived: monthReceived,
+      monthLeft: left,
       reviewCount: reviewCount,
       owedToMe: owedToMe,
       iOwe: iOwe,
       peopleOwing: peopleOwing.length,
       peopleOwed: peopleOwed.length,
       recent: recent,
+      savingsTotal: savingsTotal,
+      hasSavingsAccount: savingsAccount != null,
+      fromId: defaultId,
+      fromName: defaultAccount?.displayName(s) ?? defaultId,
+      toName: savingsAccount?.displayName(s) ?? Account.seedSavings,
     );
   }
 
@@ -99,7 +138,7 @@ class HomeScreen extends StatelessWidget {
           ),
         ),
         body: FutureBuilder<_Dash>(
-          future: _load(),
+          future: _load(s),
           builder: (context, snap) {
             if (snap.hasError) {
               return YaadErrorState(
@@ -122,6 +161,7 @@ class HomeScreen extends StatelessWidget {
                     amount: d.monthSpent,
                     sub:
                         '${s.get('received')}: ${appState.money(d.monthReceived)}',
+                    sub2: '${s.get('left')}: ${appState.money(d.monthLeft)}',
                     onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(
                             builder: (_) => const SummaryScreen())),
@@ -160,6 +200,17 @@ class HomeScreen extends StatelessWidget {
                   ),
                   if (d.owedToMe > 0 || d.iOwe > 0)
                     const SizedBox(height: Gap.x1 + 4),
+                  // 2b. Savings — the parked backup stash. Lives next to
+                  // Udhaar: money that is neither spent nor spendable.
+                  if (d.hasSavingsAccount)
+                    _SavingsCard(
+                      total: d.savingsTotal,
+                      fromId: d.fromId,
+                      fromName: d.fromName,
+                      toName: d.toName,
+                    ),
+                  if (d.hasSavingsAccount)
+                    const SizedBox(height: Gap.x1 + 4),
                   // 3. Needs your eye.
                   if (d.reviewCount > 0)
                     _ReviewCard(count: d.reviewCount),
@@ -192,35 +243,47 @@ class HomeScreen extends StatelessWidget {
 }
 
 class _Dash {
-  final double monthSpent, monthReceived;
+  final double monthSpent, monthReceived, monthLeft;
   final double owedToMe, iOwe;
+  final double savingsTotal;
+  final bool hasSavingsAccount;
+  final String fromId, fromName, toName;
   final int reviewCount, peopleOwing, peopleOwed;
   final List<YaadTransaction> recent;
   _Dash({
     required this.monthSpent,
     required this.monthReceived,
+    required this.monthLeft,
     required this.reviewCount,
     required this.owedToMe,
     required this.iOwe,
     required this.peopleOwing,
     required this.peopleOwed,
     required this.recent,
+    required this.savingsTotal,
+    required this.hasSavingsAccount,
+    required this.fromId,
+    required this.fromName,
+    required this.toName,
   });
 }
 
 class _HeroCard extends StatelessWidget {
-  final String label, sub;
+  final String label, sub, sub2;
   final double amount;
   final VoidCallback onTap;
   const _HeroCard(
       {required this.label,
       required this.amount,
       required this.sub,
+      required this.sub2,
       required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final subStyle = TextStyle(
+        color: cs.onPrimary.withValues(alpha: 0.85), fontSize: 14);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(Radius.card),
@@ -245,10 +308,16 @@ class _HeroCard extends StatelessWidget {
             MoneyText(amount,
                 size: 36, color: cs.onPrimary, animated: true),
             const SizedBox(height: 4),
-            Text(sub,
-                style: TextStyle(
-                    color: cs.onPrimary.withValues(alpha: 0.85),
-                    fontSize: 14)),
+            // Received and Left sit side by side; Wrap keeps both
+            // readable on narrow screens and in RTL.
+            Wrap(
+              spacing: 14,
+              runSpacing: 2,
+              children: [
+                Text(sub, style: subStyle),
+                Text(sub2, style: subStyle),
+              ],
+            ),
           ],
         ),
       ),
@@ -296,6 +365,212 @@ class _MiniCard extends StatelessWidget {
                     .bodySmall
                     ?.copyWith(color: cs.onSurfaceVariant)),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The savings stash: what he parked in the backup account, with the
+/// two moves he actually does — put money aside, take it back.
+/// Sits next to the Udhaar cards: parked money is neither spent nor
+/// spendable. Hidden entirely when there is no savings account.
+class _SavingsCard extends StatelessWidget {
+  final double total;
+  final String fromId;
+  final String fromName;
+  final String toName;
+  const _SavingsCard({
+    required this.total,
+    required this.fromId,
+    required this.fromName,
+    required this.toName,
+  });
+
+  void _openSheet(BuildContext context, {required bool add}) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _SavingsSheet(
+        add: add,
+        fromId: add ? fromId : Account.seedSavings,
+        fromName: add ? fromName : toName,
+        toId: add ? Account.seedSavings : fromId,
+        toName: add ? toName : fromName,
+      ),
+    ).then((_) => appState.refresh());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Strings(appState.settings.language);
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(Gap.x2),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(Radius.tile),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.savings_outlined, color: cs.primary),
+              const SizedBox(width: Gap.x1),
+              Text(s.get('savings'),
+                  style: Theme.of(context).textTheme.titleMedium),
+              const Spacer(),
+              MoneyText(total, size: 22),
+            ],
+          ),
+          if (total <= 0) ...[
+            const SizedBox(height: 4),
+            Text(s.get('savingsEmpty'),
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: cs.onSurfaceVariant)),
+          ],
+          const SizedBox(height: Gap.x1),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.tonal(
+                  onPressed: () => _openSheet(context, add: true),
+                  child: Text(s.get('addToSavings')),
+                ),
+              ),
+              // Nothing to take back when the stash is empty.
+              if (total > 0) ...[
+                const SizedBox(width: Gap.x1),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _openSheet(context, add: false),
+                    child: Text(s.get('takeBack')),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Amount → Move. One sheet: the from → to line is the confirmation,
+/// so the whole move is two taps. Keyboard-safe like the capture
+/// sheet (lifts by viewInsets, scrolls on small screens).
+class _SavingsSheet extends StatefulWidget {
+  final bool add;
+  final String fromId;
+  final String fromName;
+  final String toId;
+  final String toName;
+  const _SavingsSheet({
+    required this.add,
+    required this.fromId,
+    required this.fromName,
+    required this.toId,
+    required this.toName,
+  });
+
+  @override
+  State<_SavingsSheet> createState() => _SavingsSheetState();
+}
+
+class _SavingsSheetState extends State<_SavingsSheet> {
+  final _amountCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _amountCtrl.dispose();
+    super.dispose();
+  }
+
+  double get _amount =>
+      double.tryParse(_amountCtrl.text.replaceAll(',', '')) ?? 0;
+
+  /// One transfer row: from-account → to-account. Kind 'transfer' is
+  /// never counted as spending or income, so the month totals stay
+  /// clean; [YaadDb.savingsNet] derives in−out from these rows.
+  Future<void> _move() async {
+    final amount = _amount;
+    if (amount <= 0) return;
+    await YaadDb.insertTxn(YaadTransaction(
+      amount: amount,
+      dateTime: DateTime.now(),
+      direction: TxnDirection.ownTransfer,
+      kind: TxnKind.transfer,
+      purpose: 'savings',
+      source: TxnSource.manual,
+      accountId: widget.fromId,
+      toAccountId: widget.toId,
+    ));
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Strings(appState.settings.language);
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(Gap.x3, Gap.x1 + 4, Gap.x3, Gap.x4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: cs.outlineVariant,
+                        borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                const SizedBox(height: Gap.x2),
+                Text(
+                    widget.add ? s.get('addToSavings') : s.get('takeBack'),
+                    style: Theme.of(context).textTheme.titleLarge,
+                    textAlign: TextAlign.center),
+                const SizedBox(height: 4),
+                Text('${widget.fromName} → ${widget.toName}',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: cs.onSurfaceVariant)),
+                const SizedBox(height: Gap.x2),
+                TextField(
+                  controller: _amountCtrl,
+                  autofocus: true,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
+                  ],
+                  style: const TextStyle(
+                      fontSize: 40, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                  decoration: InputDecoration(
+                    labelText: s.get('amount'),
+                    prefixText: '${appState.settings.currency} ',
+                    border: const OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: Gap.x2),
+                FilledButton(
+                  onPressed: _amount > 0 ? _move : null,
+                  child: Text(s.get('move')),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

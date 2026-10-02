@@ -15,7 +15,7 @@ import '../models/purposes.dart';
 /// no account, no server, no sync. Free forever.
 class YaadDb {
   static const _name = 'yaad.db';
-  static const _version = 5;
+  static const _version = 6;
   static Database? _db;
 
   static Future<Database> get db async {
@@ -42,6 +42,9 @@ class YaadDb {
   /// and a nullable `accountId` column on transactions. Every existing
   /// row is backfilled to the default account ('meezan') — no row is
   /// ever left without an account.
+  /// v5 → v6: add the nullable `toAccountId` column on transactions —
+  /// the destination account of a transfer (e.g. Meezan → Savings).
+  /// Existing rows keep working — the column is NULL for them.
   static Future<void> _upgrade(
       Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
@@ -90,6 +93,9 @@ class YaadDb {
       await db.execute(
           'CREATE INDEX idx_txn_account ON transactions(accountId)');
     }
+    if (oldVersion < 6) {
+      await db.execute('ALTER TABLE transactions ADD COLUMN toAccountId TEXT');
+    }
   }
 
   /// Inserts the Meezan / Savings / Cash seeds. INSERT OR IGNORE:
@@ -124,6 +130,7 @@ class YaadDb {
         personId TEXT,
         linkedLendingId TEXT,
         accountId TEXT,
+        toAccountId TEXT,
         createdAt INTEGER NOT NULL,
         updatedAt INTEGER NOT NULL
       )''');
@@ -396,6 +403,33 @@ class YaadDb {
         "AND dateTime BETWEEN ? AND ? GROUP BY purpose ORDER BY total DESC",
         [fromMs, toMs]);
   }
+
+  /// Net money parked in savings between two moments: transfers INTO
+  /// the savings account minus transfers OUT of it. A single query —
+  /// one transfer row carries both legs (accountId = from,
+  /// toAccountId = to), so in−out is always honest.
+  ///
+  /// Transfers are kind 'transfer', never 'spend'/'receive', so
+  /// [sumSpent]/[sumReceived] stay clean no matter how much moves.
+  static Future<double> savingsNet(int fromMs, int toMs) async {
+    final d = await db;
+    final sid = Account.seedSavings;
+    final rows = await d.rawQuery('''
+      SELECT SUM(CASE
+        WHEN toAccountId = ? THEN amount
+        WHEN accountId = ? THEN -amount
+        ELSE 0 END) s
+      FROM transactions
+      WHERE kind = 'transfer' AND status != 'excluded'
+        AND (accountId = ? OR toAccountId = ?)
+        AND dateTime BETWEEN ? AND ?
+    ''', [sid, sid, sid, sid, fromMs, toMs]);
+    return ((rows.first['s'] as num?) ?? 0).toDouble();
+  }
+
+  /// Everything ever parked in savings (in − out, all time).
+  static Future<double> savingsTotal() =>
+      savingsNet(0, DateTime.now().millisecondsSinceEpoch);
 
   // ---------- people ----------
 
@@ -724,7 +758,8 @@ class YaadDb {
 
   /// Deletes an account. Its transactions are NEVER orphaned or
   /// deleted — they move to [reassignTo] (the default account, or the
-  /// new default when the deleted one was default). The last account
+  /// new default when the deleted one was default). Transfer rows
+  /// pointing at it as a destination move too. The last account
   /// cannot be deleted — callers check [accounts] first.
   static Future<void> deleteAccount(String id,
       {required String reassignTo}) async {
@@ -732,6 +767,8 @@ class YaadDb {
     await d.transaction((txn) async {
       await txn.update('transactions', {'accountId': reassignTo},
           where: 'accountId = ?', whereArgs: [id]);
+      await txn.update('transactions', {'toAccountId': reassignTo},
+          where: 'toAccountId = ?', whereArgs: [id]);
       await txn.delete('accounts', where: 'id = ?', whereArgs: [id]);
     });
     await _audit(d, 'account', id, 'deleted',
