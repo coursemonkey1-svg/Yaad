@@ -19,6 +19,9 @@ class Strings {
     // Home dashboard
     'thisWeek': 'This week',
     'thisMonth': 'This month',
+    'lastMonth': 'Last month',
+    'pickMonth': 'Pick a month…',
+    'noTxnsInPeriod': 'Nothing recorded in {period}.',
     'spentIn': 'Spent in',
     'received': 'Received',
     'left': 'Left',
@@ -119,6 +122,12 @@ class Strings {
     'original': 'Original',
     'settle': 'Settled',
     'settleUp': 'Settle up',
+    'deleteLendTitle': 'Delete this entry?',
+    'deleteLendBody': 'Delete this entry? This cannot be undone.',
+    'deleteLendWithRepayments':
+        'Delete this entry? Its {n} repayment(s) will be deleted too — this cannot be undone.',
+    'entryDeleted': 'Entry deleted.',
+    'repaymentDeleted': 'Repayment deleted.',
     'linkRepayment': 'Link this repayment?',
     'lendAgain': 'Lend again',
     'borrowAgain': 'Borrow again',
@@ -163,8 +172,14 @@ class Strings {
     'deletePurposeBody':
         'Delete "{name}"? Transactions using it will move to Other.',
     'purposeDeleted': 'Deleted "{name}". Its transactions moved to Other.',
+    'lendingStatus_open': 'Open',
+    'lendingStatus_partial': 'Partly paid',
+    'lendingStatus_settled': 'Settled',
+    'lendingStatus_writtenOff': 'Written off',
+    'lendingStatus_gift': 'Gift',
+    'repayTooMuch': "That's more than what's left ({amount}).",
     'longPressHint': 'Long-press a custom purpose to delete it',
-    'noCustomHint': 'Add your own from the Add screen.',
+    'noCustomHint': 'No custom purposes yet — add one below.',
     'noMatchFilters': 'No transactions match your filters.',
     'tryClearing': 'Try clearing your filters.',
     'spentFilter': 'Spent',
@@ -281,6 +296,8 @@ class Strings {
     'allDataDeleted': 'All data deleted.',
     'toReview': '{n} to review — tap one, pick a purpose, done.',
     'noSpendingPeriod': 'No spending in this period.',
+    'noSpendingPeriodBody':
+        'Nothing was spent in this period. Try another week or month.',
     'week': 'Week',
     'weekOf': 'Week of',
     'month': 'Month',
@@ -293,6 +310,12 @@ class Strings {
     'editName': 'Edit name',
     'bankLabelExactly': 'Bank label (exactly as shown)',
     'yourNameForIt': 'Your name for it',
+    'deleteAliasTitle': 'Delete this name?',
+    'deleteAliasBody':
+        'Delete "{name}"? Transactions will show the bank label again.',
+    'aliasDeleted': 'Deleted "{name}"',
+    'aliasFillBoth': 'Fill in both the bank label and your name.',
+    'longPressAliasHint': 'Long-press a name to delete it',
     'autoCapture': 'Automatic capture',
     'smsCapture': 'Bank SMS alerts',
     'smsCaptureSub':
@@ -322,6 +345,7 @@ class Strings {
     'rangeCustom': 'Custom range…',
     'rangeFrom': 'From',
     'rangeTo': 'To',
+    'rangeInvalid': '"From" is after "To" — pick the dates again.',
     'export': 'Export',
     'exportEmptyTitle': 'Nothing in this range',
     'exportEmptyBody':
@@ -512,6 +536,7 @@ class Strings {
     'accountTxns': '{n} transactions',
     'addAccount': 'Add account',
     'accountNameHint': 'e.g. Holiday fund, HBL',
+    'openingBalance': 'Opening balance (optional)',
     'accountExists': 'That account already exists',
     'accountAdded': 'Added "{name}"',
     'rename': 'Rename',
@@ -522,6 +547,9 @@ class Strings {
     'accountDeleted':
         'Deleted "{name}". Its transactions moved to {default}.',
     'setAsDefault': 'Set as default',
+    'openingBalanceHint': 'What this account already had (optional)',
+    'totalBalance': 'Total balance',
+    'invalidOpening': 'That opening balance is not a number.',
     'defaultAccount': 'Default',
     'defaultAccountSub':
         'New entries land in the default account unless you pick another one.',
@@ -542,6 +570,9 @@ class Strings {
     'capture': 'شامل کریں',
     'thisWeek': 'اس ہفتے',
     'thisMonth': 'اس مہینے',
+    'lastMonth': 'پچھلا مہینہ',
+    'pickMonth': 'مہینہ چنیں…',
+    'noTxnsInPeriod': '{period} میں کچھ درج نہیں۔',
     'spentIn': 'خرچ',
     'received': 'وصول',
     'left': 'باقی',
@@ -637,6 +668,12 @@ class Strings {
     'original': 'اصل رقم',
     'settle': 'طے شدہ',
     'settleUp': 'حساب چکا دیں',
+    'deleteLendTitle': 'یہ اندراج حذف کریں؟',
+    'deleteLendBody': 'یہ اندراج حذف کریں؟ یہ واپس نہیں ہوگا۔',
+    'deleteLendWithRepayments':
+        'یہ اندراج حذف کریں؟ اس کی {n} واپسیاں بھی حذف ہو جائیں گی — یہ واپس نہیں ہوگا۔',
+    'entryDeleted': 'اندراج حذف ہو گیا۔',
+    'repaymentDeleted': 'واپسی حذف ہو گئی۔',
     'linkRepayment': 'کیا یہ واپسی جوڑیں؟',
     'lendAgain': 'دوبارہ ادھار دیں',
     'borrowAgain': 'دوبارہ ادھار لیں',
@@ -681,8 +718,14 @@ class Strings {
         '"{name}" حذف کریں؟ اس مقصد والے لین دین "دیگر" میں چلے جائیں گے۔',
     'purposeDeleted':
         '"{name}" حذف ہو گیا۔ اس کے لین دین "دیگر" میں چلے گئے۔',
+    'lendingStatus_open': 'کھلا',
+    'lendingStatus_partial': 'جزوی ادا',
+    'lendingStatus_settled': 'چکتا',
+    'lendingStatus_writtenOff': 'معاف کیا گیا',
+    'lendingStatus_gift': 'تحفہ',
+    'repayTooMuch': 'یہ باقی رقم ({amount}) سے زیادہ ہے۔',
     'longPressHint': 'حذف کرنے کے لیے اپنے مقصد کو دبائے رکھیں',
-    'noCustomHint': 'ایڈ اسکرین سے اپنے مقاصد شامل کریں۔',
+    'noCustomHint': 'ابھی کوئی اپنا مقصد نہیں — نیچے سے شامل کریں۔',
     'noMatchFilters': 'ان فلٹرز سے کوئی لین دین نہیں ملا۔',
     'tryClearing': 'فلٹرز صاف کر کے دوبارہ دیکھیں۔',
     'spentFilter': 'خرچ',
@@ -793,6 +836,8 @@ class Strings {
     'allDataDeleted': 'تمام ڈیٹا حذف کر دیا گیا۔',
     'toReview': '{n} جانچ باقی — ایک پر ٹیپ کریں، مقصد چنیں، ہو گیا۔',
     'noSpendingPeriod': 'اس مدت میں کوئی خرچ نہیں۔',
+    'noSpendingPeriodBody':
+        'اس مدت میں کچھ خرچ نہیں ہوا۔ کوئی اور ہفتہ یا مہینہ دیکھیں۔',
     'week': 'ہفتہ',
     'weekOf': 'ہفتہ شروع',
     'month': 'مہینہ',
@@ -805,6 +850,12 @@ class Strings {
     'editName': 'نام بدلیں',
     'bankLabelExactly': 'بینک لیبل (جیسا دکھتا ہے)',
     'yourNameForIt': 'اس کے لیے آپ کا نام',
+    'deleteAliasTitle': 'یہ نام حذف کریں؟',
+    'deleteAliasBody':
+        '"{name}" حذف کریں؟ لین دین پر دوبارہ بینک لیبل دکھے گا۔',
+    'aliasDeleted': '"{name}" حذف ہو گیا',
+    'aliasFillBoth': 'بینک لیبل اور اپنا نام دونوں لکھیں۔',
+    'longPressAliasHint': 'حذف کرنے کے لیے نام کو دبائے رکھیں',
     'autoCapture': 'خودکار کیپچر',
     'smsCapture': 'بینک SMS الرٹس',
     'smsCaptureSub':
@@ -834,6 +885,7 @@ class Strings {
     'rangeCustom': 'اپنی مرضی کی حد…',
     'rangeFrom': 'سے',
     'rangeTo': 'تک',
+    'rangeInvalid': '"سے" کی تاریخ "تک" کے بعد ہے — تاریخیں دوبارہ چنیں۔',
     'export': 'نکالیں',
     'exportEmptyTitle': 'اس مدت میں کچھ نہیں',
     'exportEmptyBody':
@@ -1024,6 +1076,7 @@ class Strings {
     'accountTxns': '{n} لین دین',
     'addAccount': 'کھاتہ شامل کریں',
     'accountNameHint': 'مثلاً چھٹیوں کا فنڈ، HBL',
+    'openingBalance': 'ابتدائی بیلنس (اختیاری)',
     'accountExists': 'یہ کھاتہ پہلے سے موجود ہے',
     'accountAdded': '"{name}" شامل ہو گیا',
     'rename': 'نام بدلیں',
@@ -1034,6 +1087,9 @@ class Strings {
     'accountDeleted':
         '"{name}" حذف ہو گیا۔ اس کے لین دین {default} میں چلے گئے۔',
     'setAsDefault': 'بنیادی بنائیں',
+    'openingBalanceHint': 'اس کھاتے میں پہلے سے موجود رقم (اختیاری)',
+    'totalBalance': 'کل بیلنس',
+    'invalidOpening': 'یہ ابتدائی بیلنس درست نمبر نہیں ہے۔',
     'defaultAccount': 'بنیادی',
     'defaultAccountSub':
         'نئے اندراجات بنیادی کھاتے میں جائیں گے جب تک آپ کوئی اور کھاتہ نہ چنیں۔',
@@ -1047,6 +1103,21 @@ class Strings {
     const en = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    const ur = [
+      'جنوری', 'فروری', 'مارچ', 'اپریل', 'مئی', 'جون',
+      'جولائی', 'اگست', 'ستمبر', 'اکتوبر', 'نومبر', 'دسمبر'
+    ];
+    final list = code == 'ur' ? ur : en;
+    return list[month - 1];
+  }
+
+  /// Full localised month name ("October" / "اکتوبر") — period labels
+  /// compose with it ("Spent in October", "October 2025").
+  String monthFull(int month) {
+    const en = [
+      'January', 'February', 'March', 'April', 'May', 'June', 'July',
+      'August', 'September', 'October', 'November', 'December'
     ];
     const ur = [
       'جنوری', 'فروری', 'مارچ', 'اپریل', 'مئی', 'جون',

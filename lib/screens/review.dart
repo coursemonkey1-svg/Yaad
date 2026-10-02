@@ -4,6 +4,8 @@ import '../data/db.dart';
 import '../l10n/strings.dart';
 import '../main.dart';
 import '../models/transaction.dart';
+import '../theme.dart';
+import '../widgets/atoms.dart';
 import 'home.dart';
 
 /// Needs Review inbox: every unannotated transaction, quick to clear.
@@ -21,6 +23,12 @@ class ReviewScreen extends StatelessWidget {
         body: FutureBuilder<List<YaadTransaction>>(
           future: YaadDb.txns(status: TxnStatus.needsReview.name, limit: 500),
           builder: (context, snap) {
+            if (snap.hasError) {
+              return YaadErrorState(
+                message: '${snap.error}',
+                onRetry: () => appState.refresh(),
+              );
+            }
             if (!snap.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
@@ -44,19 +52,19 @@ class ReviewScreen extends StatelessWidget {
             return Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: LinearProgressIndicator(
-                      value: 1 - items.length / (items.length + 1)),
-                ),
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(s
-                      .get('toReview')
-                      .replaceFirst('{n}', '${items.length}')),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(s
+                        .get('toReview')
+                        .replaceFirst('{n}', '${items.length}')),
+                  ),
                 ),
                 Expanded(
                   child: ListView.builder(
+                    // Bottom clearance so the last card never sits
+                    // flush under the screen edge / gesture bar.
+                    padding: const EdgeInsets.only(bottom: Gap.x4),
                     itemCount: items.length,
                     itemBuilder: (_, i) => TxnRow(
                       txn: items[i],

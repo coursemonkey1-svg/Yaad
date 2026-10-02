@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/timezone.dart' as tz;
 
+import '../l10n/strings.dart';
 import '../models/settings.dart';
 
 /// App-wide state: settings + a refresh signal the UI listens to.
@@ -49,8 +50,9 @@ class AppState extends ChangeNotifier {
   String money(double amount) {
     // Pakistani digit grouping: 1,00,000 (lakh), 1,00,00,000 (crore).
     // The way our users read big numbers — not the Western 100,000.
-    final neg = amount < 0;
     final grouped = _groupPakistani(amount.abs().toStringAsFixed(0));
+    // A tiny negative that rounds to zero must not render as "-0".
+    final neg = amount < 0 && grouped != '0';
     return '${settings.currency} ${neg ? '-' : ''}$grouped';
   }
 
@@ -96,15 +98,104 @@ class AppState extends ChangeNotifier {
   int startOfWeekMs() {
     final n = nowInTz();
     // firstDayOfWeek: 1 = Monday … 7 = Sunday, matching DateTime.weekday.
-    final diff = (n.weekday - settings.firstDayOfWeek) % 7;
-    final start = n.subtract(Duration(days: diff));
-    return _ms(tz.TZDateTime(_loc, start.year, start.month, start.day));
+    // Clamp a corrupt stored value into range instead of trusting it.
+    final first = ((settings.firstDayOfWeek - 1) % 7) + 1;
+    final diff = (n.weekday - first) % 7;
+    // Pure calendar math (the TZDateTime constructor normalises a
+    // day <= 0 into the previous month) — subtracting a Duration
+    // instead would drift by an hour across DST changes and could
+    // land on the wrong calendar day.
+    return _ms(tz.TZDateTime(_loc, n.year, n.month, n.day - diff));
   }
 
   /// Start of the current month (user timezone).
   int startOfMonthMs() {
     final n = nowInTz();
     return _ms(tz.TZDateTime(_loc, n.year, n.month, 1));
+  }
+
+  // ---------- shared viewing period ----------
+  // One persisted period (AppSettings.period) drives Home, Activity
+  // and Summary alike, so every screen always talks about the same
+  // stretch of time. All bounds use the user's timezone.
+
+  /// Parses a 'month:YYYY-MM' period value into (year, month).
+  /// Returns null for the fixed period values.
+  static (int, int)? periodMonthParts(String period) {
+    if (!period.startsWith('month:')) return null;
+    final parts = period.substring(6).split('-');
+    if (parts.length != 2) return null;
+    final y = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    if (y == null || m == null || m < 1 || m > 12) return null;
+    return (y, m);
+  }
+
+  /// Inclusive epoch-ms bounds for [period] (default: the persisted
+  /// settings period), as a positional record — destructure it:
+  /// `final (fromMs, toMs) = appState.periodRangeMs();`
+  /// Open-ended periods (thisWeek/thisMonth/thisYear/allTime) end at
+  /// "now"; closed periods (lastMonth, a picked month) end at their
+  /// last millisecond. 'allTime' starts at 0. Feed the bounds
+  /// straight into YaadDb sums / txns(fromMs:, toMs:) — e.g.
+  /// Left = sumReceived − sumSpent − savingsNet(fromMs, toMs).
+  (int fromMs, int toMs) periodRangeMs([String? period]) {
+    final p = period ?? settings.period;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final n = nowInTz();
+    final loc = _loc;
+    final picked = periodMonthParts(p);
+    if (picked != null) {
+      final (y, m) = picked;
+      final start = tz.TZDateTime(loc, y, m, 1);
+      final next = tz.TZDateTime(loc, y, m + 1, 1);
+      return (start.millisecondsSinceEpoch, next.millisecondsSinceEpoch - 1);
+    }
+    switch (p) {
+      case AppSettings.periodThisWeek:
+        return (startOfWeekMs(), nowMs);
+      case AppSettings.periodLastMonth:
+        // TZDateTime normalises month 0 into December of the year
+        // before, so January's "last month" is right too.
+        final start = tz.TZDateTime(loc, n.year, n.month - 1, 1);
+        return (start.millisecondsSinceEpoch, startOfMonthMs() - 1);
+      case AppSettings.periodThisYear:
+        final start = tz.TZDateTime(loc, n.year, 1, 1);
+        return (start.millisecondsSinceEpoch, nowMs);
+      case AppSettings.periodAllTime:
+        return (0, nowMs);
+      case AppSettings.periodThisMonth:
+      default:
+        return (startOfMonthMs(), nowMs);
+    }
+  }
+
+  /// The period's display name in the user's language — the noun a
+  /// heading composes with, e.g. "Spent in " + periodLabel():
+  /// 'October' (thisMonth), 'October 2025' (a picked month),
+  /// 'Last month', 'This week', '2026' (thisYear), 'All time'.
+  String periodLabel([String? period]) {
+    final p = period ?? settings.period;
+    final s = Strings(settings.language);
+    final n = nowInTz();
+    final picked = periodMonthParts(p);
+    if (picked != null) {
+      final (y, m) = picked;
+      return '${s.monthFull(m)} $y';
+    }
+    switch (p) {
+      case AppSettings.periodThisWeek:
+        return s.get('thisWeek');
+      case AppSettings.periodLastMonth:
+        return s.get('lastMonth');
+      case AppSettings.periodThisYear:
+        return '${n.year}';
+      case AppSettings.periodAllTime:
+        return s.get('rangeAllTime');
+      case AppSettings.periodThisMonth:
+      default:
+        return s.monthFull(n.month);
+    }
   }
 
   /// Date formatted per the user's chosen date format.

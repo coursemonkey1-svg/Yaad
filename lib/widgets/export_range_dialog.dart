@@ -76,20 +76,24 @@ class _RangeDialogState extends State<_RangeDialog> {
       case _Preset.allTime:
         return const ExportRange(fileLabel: 'all');
       case _Preset.custom:
-        var from = _customFrom!;
-        var to = _customTo!;
-        if (from.isAfter(to)) {
-          final tmp = from;
-          from = to;
-          to = tmp;
-        }
+        // Only reachable when both dates are set and from <= to —
+        // the dialog disables Export otherwise (see _customInvalid).
         return ExportRange(
-          from: from,
-          to: to,
-          fileLabel: '${_ymd(from)}_to_${_ymd(to)}',
+          from: _customFrom!,
+          to: _customTo!,
+          fileLabel: '${_ymd(_customFrom!)}_to_${_ymd(_customTo!)}',
         );
     }
   }
+
+  /// A custom range whose start is after its end. Previously the
+  /// dates were silently swapped, so the export covered a different
+  /// range than the one on the buttons.
+  bool get _customInvalid =>
+      _preset == _Preset.custom &&
+      _customFrom != null &&
+      _customTo != null &&
+      _customFrom!.isAfter(_customTo!);
 
   String _span(_Preset preset) {
     final r = _rangeFor(preset);
@@ -140,8 +144,9 @@ class _RangeDialogState extends State<_RangeDialog> {
       );
     }
 
-    final canExport =
-        _preset != _Preset.custom || (_customFrom != null && _customTo != null);
+    final canExport = !_customInvalid &&
+        (_preset != _Preset.custom ||
+            (_customFrom != null && _customTo != null));
 
     return AlertDialog(
       title: Text(s.get('exportRangeTitle')),
@@ -172,6 +177,16 @@ class _RangeDialogState extends State<_RangeDialog> {
                       const SizedBox(width: 8),
                       dateButton(s.get('rangeTo'), _customTo, false),
                     ],
+                  ),
+                ),
+              if (_customInvalid)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    s.get('rangeInvalid'),
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontSize: 13),
                   ),
                 ),
             ],
