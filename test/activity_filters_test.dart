@@ -125,6 +125,8 @@ void main() {
       s: const Strings('en'),
       initialPurposes: const {},
       initialDirection: null,
+      initialAccounts: const {},
+      accounts: const [],
       customs: [cp],
       onChanged: (_) {},
     ));
@@ -160,6 +162,8 @@ void main() {
       s: const Strings('en'),
       initialPurposes: const {},
       initialDirection: null,
+      initialAccounts: const {},
+      accounts: const [],
       customs: const [],
       onChanged: (sel) => last = sel,
     ));
@@ -232,6 +236,8 @@ void main() {
       s: const Strings('en'),
       initialPurposes: const {},
       initialDirection: null,
+      initialAccounts: const {},
+      accounts: const [],
       customs: [cp],
       onChanged: (sel) => last = sel,
     ));
@@ -259,6 +265,8 @@ void main() {
       s: const Strings('en'),
       initialPurposes: const {'groceries', 'food'},
       initialDirection: TxnDirection.out,
+      initialAccounts: const {},
+      accounts: const [],
       customs: const [],
       onChanged: (sel) => last = sel,
     ));
@@ -279,6 +287,8 @@ void main() {
       s: const Strings('en'),
       initialPurposes: const {},
       initialDirection: null,
+      initialAccounts: const {},
+      accounts: const [],
       customs: const [],
       onChanged: (sel) => last = sel,
     ));

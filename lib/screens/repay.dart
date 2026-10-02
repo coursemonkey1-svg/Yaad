@@ -106,6 +106,7 @@ class _RepayScreenState extends State<RepayScreen> {
       note: _selected?.reason ?? '',
       personId: widget.person.id,
       source: TxnSource.manual,
+      accountId: appState.settings.defaultAccountId,
     ));
     appState.refresh();
     if (mounted) Navigator.of(context).pop();

@@ -57,6 +57,7 @@ class _ImportPreviewScreenState extends State<ImportPreviewScreen> {
       selected,
       widget.statement.mappingSignature,
       mapping: widget.statement.mapping,
+      accountId: appState.settings.defaultAccountId,
     );
     appState.refresh();
     if (mounted) Navigator.of(context).pop(report);

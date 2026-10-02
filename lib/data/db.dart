@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/transaction.dart';
+import '../models/account.dart';
 import '../models/person.dart';
 import '../models/lending.dart';
 import '../models/alias.dart';
@@ -14,7 +15,7 @@ import '../models/purposes.dart';
 /// no account, no server, no sync. Free forever.
 class YaadDb {
   static const _name = 'yaad.db';
-  static const _version = 4;
+  static const _version = 6;
   static Database? _db;
 
   static Future<Database> get db async {
@@ -37,6 +38,13 @@ class YaadDb {
   /// v2 → v3: add the `custom_purposes` table (user-created purposes).
   /// v3 → v4: add nullable `audioPath` + `voiceNote` columns for voice
   /// notes (v1.3). Existing rows keep working — both columns are NULL.
+  /// v4 → v5: add the `accounts` table (Meezan / Savings / Cash seeds)
+  /// and a nullable `accountId` column on transactions. Every existing
+  /// row is backfilled to the default account ('meezan') — no row is
+  /// ever left without an account.
+  /// v5 → v6: add the nullable `toAccountId` column on transactions —
+  /// the destination account of a transfer (e.g. Meezan → Savings).
+  /// Existing rows keep working — the column is NULL for them.
   static Future<void> _upgrade(
       Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
@@ -69,6 +77,34 @@ class YaadDb {
       await db.execute('ALTER TABLE transactions ADD COLUMN audioPath TEXT');
       await db.execute('ALTER TABLE transactions ADD COLUMN voiceNote TEXT');
     }
+    if (oldVersion < 5) {
+      await db.execute('''
+        CREATE TABLE accounts(
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          customName INTEGER NOT NULL DEFAULT 0,
+          createdAt INTEGER NOT NULL
+        )''');
+      await _seedAccounts(db);
+      await db.execute('ALTER TABLE transactions ADD COLUMN accountId TEXT');
+      await db.execute(
+          "UPDATE transactions SET accountId = '${Account.seedMeezan}' "
+          'WHERE accountId IS NULL');
+      await db.execute(
+          'CREATE INDEX idx_txn_account ON transactions(accountId)');
+    }
+    if (oldVersion < 6) {
+      await db.execute('ALTER TABLE transactions ADD COLUMN toAccountId TEXT');
+    }
+  }
+
+  /// Inserts the Meezan / Savings / Cash seeds. INSERT OR IGNORE:
+  /// migrations and restores never duplicate them (matched by id).
+  static Future<void> _seedAccounts(Database db) async {
+    for (final a in Account.seeds()) {
+      await db.insert('accounts', a.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
   }
 
   static Future<void> _create(Database db, int version) async {
@@ -93,6 +129,8 @@ class YaadDb {
         status TEXT NOT NULL,
         personId TEXT,
         linkedLendingId TEXT,
+        accountId TEXT,
+        toAccountId TEXT,
         createdAt INTEGER NOT NULL,
         updatedAt INTEGER NOT NULL
       )''');
@@ -102,6 +140,8 @@ class YaadDb {
         'CREATE INDEX idx_txn_status ON transactions(status)');
     await db.execute(
         'CREATE INDEX idx_txn_ref ON transactions(bankReference)');
+    await db.execute(
+        'CREATE INDEX idx_txn_account ON transactions(accountId)');
 
     await db.execute('''
       CREATE TABLE people(
@@ -160,6 +200,17 @@ class YaadDb {
         label TEXT NOT NULL,
         createdAt INTEGER NOT NULL
       )''');
+
+    // Money accounts (Meezan / Savings / Cash + the user's own).
+    // `customName` tracks seeded renames for localisation.
+    await db.execute('''
+      CREATE TABLE accounts(
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        customName INTEGER NOT NULL DEFAULT 0,
+        createdAt INTEGER NOT NULL
+      )''');
+    await _seedAccounts(db);
 
     // Append-only audit trail: every create/edit/link/unlink/delete.
     await db.execute('''
@@ -223,6 +274,7 @@ class YaadDb {
     Set<String>? purposes,
     TxnKind? kind,
     String? personId,
+    Set<String>? accountIds,
     int? fromMs,
     int? toMs,
   }) async {
@@ -245,6 +297,11 @@ class YaadDb {
     if (personId != null) {
       where.add('personId = ?');
       args.add(personId);
+    }
+    if (accountIds != null && accountIds.isNotEmpty) {
+      where.add(
+          'accountId IN (${List.filled(accountIds.length, '?').join(', ')})');
+      args.addAll(accountIds);
     }
     if (fromMs != null) {
       where.add('dateTime >= ?');
@@ -311,19 +368,29 @@ class YaadDb {
   }
 
   /// Money spent: ONLY kind = 'spend'. Lending is never spending.
-  static Future<double> sumSpent(int fromMs, int toMs) =>
-      sumByKind(TxnKind.spend, fromMs, toMs);
+  static Future<double> sumSpent(int fromMs, int toMs,
+          {Set<String>? accountIds}) =>
+      sumByKind(TxnKind.spend, fromMs, toMs, accountIds: accountIds);
 
   /// Money received: ONLY kind = 'receive'.
-  static Future<double> sumReceived(int fromMs, int toMs) =>
-      sumByKind(TxnKind.receive, fromMs, toMs);
+  static Future<double> sumReceived(int fromMs, int toMs,
+          {Set<String>? accountIds}) =>
+      sumByKind(TxnKind.receive, fromMs, toMs, accountIds: accountIds);
 
-  static Future<double> sumByKind(TxnKind kind, int fromMs, int toMs) async {
+  static Future<double> sumByKind(TxnKind kind, int fromMs, int toMs,
+      {Set<String>? accountIds}) async {
     final d = await db;
+    final where = StringBuffer(
+        "kind = ? AND status != 'excluded' AND dateTime BETWEEN ? AND ?");
+    final args = <Object?>[kind.name, fromMs, toMs];
+    if (accountIds != null && accountIds.isNotEmpty) {
+      where.write(
+          ' AND accountId IN (${List.filled(accountIds.length, '?').join(', ')})');
+      args.addAll(accountIds);
+    }
     final rows = await d.rawQuery(
-        "SELECT SUM(amount) s FROM transactions WHERE kind = ? "
-        "AND status != 'excluded' AND dateTime BETWEEN ? AND ?",
-        [kind.name, fromMs, toMs]);
+        'SELECT SUM(amount) s FROM transactions WHERE ${where.toString()}',
+        args);
     return ((rows.first['s'] as num?) ?? 0).toDouble();
   }
 
@@ -336,6 +403,33 @@ class YaadDb {
         "AND dateTime BETWEEN ? AND ? GROUP BY purpose ORDER BY total DESC",
         [fromMs, toMs]);
   }
+
+  /// Net money parked in savings between two moments: transfers INTO
+  /// the savings account minus transfers OUT of it. A single query —
+  /// one transfer row carries both legs (accountId = from,
+  /// toAccountId = to), so in−out is always honest.
+  ///
+  /// Transfers are kind 'transfer', never 'spend'/'receive', so
+  /// [sumSpent]/[sumReceived] stay clean no matter how much moves.
+  static Future<double> savingsNet(int fromMs, int toMs) async {
+    final d = await db;
+    final sid = Account.seedSavings;
+    final rows = await d.rawQuery('''
+      SELECT SUM(CASE
+        WHEN toAccountId = ? THEN amount
+        WHEN accountId = ? THEN -amount
+        ELSE 0 END) s
+      FROM transactions
+      WHERE kind = 'transfer' AND status != 'excluded'
+        AND (accountId = ? OR toAccountId = ?)
+        AND dateTime BETWEEN ? AND ?
+    ''', [sid, sid, sid, sid, fromMs, toMs]);
+    return ((rows.first['s'] as num?) ?? 0).toDouble();
+  }
+
+  /// Everything ever parked in savings (in − out, all time).
+  static Future<double> savingsTotal() =>
+      savingsNet(0, DateTime.now().millisecondsSinceEpoch);
 
   // ---------- people ----------
 
@@ -605,6 +699,93 @@ class YaadDb {
     await refreshCustomPurposeRegistry();
   }
 
+  // ---------- accounts ----------
+
+  /// All money accounts, oldest first. Included in backup/restore.
+  static Future<List<Account>> accounts() async {
+    final d = await db;
+    final rows = await d.query('accounts', orderBy: 'createdAt ASC');
+    return rows.map(Account.fromMap).toList();
+  }
+
+  static Future<Account?> accountById(String id) async {
+    final d = await db;
+    final rows = await d.query('accounts',
+        where: 'id = ?', whereArgs: [id], limit: 1);
+    return rows.isEmpty ? null : Account.fromMap(rows.first);
+  }
+
+  /// Whether an account name (case-insensitive) is already taken.
+  static Future<bool> accountNameExists(String name) async {
+    final d = await db;
+    final rows = await d.query('accounts',
+        where: 'LOWER(name) = ?',
+        whereArgs: [name.trim().toLowerCase()],
+        limit: 1);
+    return rows.isNotEmpty;
+  }
+
+  /// Adds a user account. Throws [StateError] when the name is taken.
+  static Future<Account> insertAccount(String name) async {
+    final d = await db;
+    final clean = name.trim();
+    if (await accountNameExists(clean)) {
+      throw StateError('Account "$clean" already exists');
+    }
+    final a = Account.named(clean);
+    await d.insert('accounts', a.toMap());
+    await _audit(d, 'account', a.id, 'created', clean);
+    return a;
+  }
+
+  /// Renames an account. Seeded accounts keep their id; the rename is
+  /// remembered (`customName`) so the localised label is no longer used.
+  /// Throws [StateError] when the name is taken by another account.
+  static Future<void> renameAccount(String id, String name) async {
+    final d = await db;
+    final clean = name.trim();
+    final clash = await d.query('accounts',
+        where: 'LOWER(name) = ? AND id != ?',
+        whereArgs: [clean.toLowerCase(), id],
+        limit: 1);
+    if (clash.isNotEmpty) {
+      throw StateError('Account "$clean" already exists');
+    }
+    await d.update('accounts', {'name': clean, 'customName': 1},
+        where: 'id = ?', whereArgs: [id]);
+    await _audit(d, 'account', id, 'renamed', clean);
+  }
+
+  /// Deletes an account. Its transactions are NEVER orphaned or
+  /// deleted — they move to [reassignTo] (the default account, or the
+  /// new default when the deleted one was default). Transfer rows
+  /// pointing at it as a destination move too. The last account
+  /// cannot be deleted — callers check [accounts] first.
+  static Future<void> deleteAccount(String id,
+      {required String reassignTo}) async {
+    final d = await db;
+    await d.transaction((txn) async {
+      await txn.update('transactions', {'accountId': reassignTo},
+          where: 'accountId = ?', whereArgs: [id]);
+      await txn.update('transactions', {'toAccountId': reassignTo},
+          where: 'toAccountId = ?', whereArgs: [id]);
+      await txn.delete('accounts', where: 'id = ?', whereArgs: [id]);
+    });
+    await _audit(d, 'account', id, 'deleted',
+        'transactions reassigned to $reassignTo');
+  }
+
+  /// Transaction counts per account id (for the manage screen).
+  static Future<Map<String, int>> txnCountsByAccount() async {
+    final d = await db;
+    final rows = await d.rawQuery(
+        'SELECT accountId, COUNT(*) n FROM transactions GROUP BY accountId');
+    return {
+      for (final r in rows)
+        (r['accountId'] as String? ?? ''): (r['n'] as int?) ?? 0
+    };
+  }
+
   // ---------- audit / maintenance ----------
 
   static Future<void> _audit(Database d, String entity, String entityId,
@@ -618,6 +799,10 @@ class YaadDb {
     });
   }
 
+  /// "Delete all my data". Accounts are structural — like settings —
+  /// so they survive: every install has Meezan / Savings / Cash, and
+  /// wiping must never leave transactions pointing at a missing
+  /// account. (There are no transactions left to point anyway.)
   static Future<void> wipeAll() async {
     final d = await db;
     for (final t in [

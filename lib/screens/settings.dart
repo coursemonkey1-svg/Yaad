@@ -12,6 +12,8 @@ import '../services/importer.dart';
 import '../services/pro.dart';
 import '../services/sms_capture.dart';
 import '../theme.dart';
+import '../widgets/statement_import_wait.dart';
+import 'accounts.dart';
 import 'aliases.dart';
 import 'import_preview.dart';
 import 'pro.dart';
@@ -209,6 +211,14 @@ class SettingsScreen extends StatelessWidget {
                 onTap: () => _importStatement(context),
               ),
               _section(t.get('yourData')),
+              ListTile(
+                leading: const Icon(Icons.account_balance_wallet_outlined),
+                title: Text(t.get('myAccounts')),
+                subtitle: Text(t.get('myAccountsSub')),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const AccountsScreen())),
+              ),
               ListTile(
                 leading: const Icon(Icons.backup_outlined),
                 title: Text(t.get('backup')),
@@ -410,25 +420,29 @@ class SettingsScreen extends StatelessWidget {
       allowMultiple: false,
     );
     if (res == null || res.files.single.path == null) return;
+    final path = res.files.single.path!;
     if (!context.mounted) return;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        content: Row(
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(width: 20),
-            Expanded(child: Text(s.get('importReading'))),
-          ],
-        ),
-      ),
+
+    // Cancellable progress + bounded parse: the user is never trapped on
+    // an infinite spinner, and failures always land on a plain-language
+    // message. Nothing reaches the database before the preview-screen
+    // confirmation below.
+    final result = await runStatementImport(
+      context,
+      path: path,
+      strings: s,
+      parse: StatementImporter().parseFile,
     );
-    final parsed =
-        await StatementImporter().parseFile(res.files.single.path!);
-    appState.refresh();
     if (!context.mounted) return;
-    Navigator.of(context).pop(); // dismiss progress
+    appState.refresh();
+
+    if (result.outcome == StatementImportOutcome.cancelled) return;
+    if (result.outcome != StatementImportOutcome.ready ||
+        result.statement == null) {
+      await showImportReadFailedDialog(context, s);
+      return;
+    }
+    final parsed = result.statement!;
 
     // Scanned/image PDF: no extractable text — guide, don't fail silently.
     if (parsed.pdfNoText) {

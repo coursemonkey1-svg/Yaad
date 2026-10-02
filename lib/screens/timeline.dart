@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/db.dart';
 import '../l10n/strings.dart';
 import '../main.dart';
+import '../models/account.dart';
 import '../models/custom_purpose.dart';
 import '../models/settings.dart';
 import '../models/transaction.dart';
@@ -11,7 +12,8 @@ import '../widgets/filter_sheet.dart';
 import 'home.dart';
 
 /// Transaction timeline with search and filters.
-/// Filters combine: direction AND (any selected purpose) AND search text.
+/// Filters combine: direction AND (any selected purpose)
+/// AND (any selected account) AND search text.
 class TimelineScreen extends StatefulWidget {
   const TimelineScreen({super.key});
   @override
@@ -21,20 +23,29 @@ class TimelineScreen extends StatefulWidget {
 class _TimelineScreenState extends State<TimelineScreen> {
   String _query = '';
   Set<String> _purposes = {};
+  Set<String> _accounts = {};
   TxnDirection? _direction;
   List<CustomPurpose> _customs = [];
+  List<Account> _allAccounts = [];
   final _searchCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _loadCustoms();
+    _loadAccounts();
   }
 
   Future<void> _loadCustoms() async {
     final customs = await YaadDb.customPurposes();
     if (!mounted) return;
     setState(() => _customs = customs);
+  }
+
+  Future<void> _loadAccounts() async {
+    final accounts = await YaadDb.accounts();
+    if (!mounted) return;
+    setState(() => _allAccounts = accounts);
   }
 
   @override
@@ -44,7 +55,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
   }
 
   int get _activeCount =>
-      _purposes.length + (_direction != null ? 1 : 0);
+      _purposes.length + (_direction != null ? 1 : 0) + _accounts.length;
 
   Future<void> _openFilters() async {
     final s = Strings(appState.settings.language);
@@ -53,10 +64,13 @@ class _TimelineScreenState extends State<TimelineScreen> {
       s: s,
       initialPurposes: _purposes,
       initialDirection: _direction,
+      initialAccounts: _accounts,
       customs: _customs,
+      accounts: _allAccounts,
       onChanged: (sel) => setState(() {
         _purposes = sel.purposes;
         _direction = sel.direction;
+        _accounts = sel.accountIds;
       }),
     );
     // A custom purpose may have been deleted inside the sheet.
@@ -69,6 +83,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
       _query = '';
       _purposes = {};
       _direction = null;
+      _accounts = {};
     });
     ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(s.get('filtersCleared'))));
@@ -122,6 +137,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
                   limit: 500,
                   query: _query.isEmpty ? null : _query,
                   purposes: _purposes.isEmpty ? null : _purposes,
+                  accountIds: _accounts.isEmpty ? null : _accounts,
                 ),
                 builder: (context, snap) {
                   if (!snap.hasData) {
@@ -194,8 +210,10 @@ class _TimelineScreenState extends State<TimelineScreen> {
 
   /// Never a blank screen: the empty state says what to do next.
   Widget _emptyState(Strings s) {
-    final filtering =
-        _purposes.isNotEmpty || _direction != null || _query.isNotEmpty;
+    final filtering = _purposes.isNotEmpty ||
+        _direction != null ||
+        _accounts.isNotEmpty ||
+        _query.isNotEmpty;
     if (!filtering) {
       return Center(
         child: Padding(
