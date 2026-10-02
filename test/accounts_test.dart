@@ -284,6 +284,49 @@ void main() {
     expect(await YaadDb.sumSpent(from, to), greaterThanOrEqualTo(700));
   });
 
+  test('txnCountsByAccount counts BOTH legs of a transfer', () async {
+    // Fresh accounts, so no other test's rows can pollute the counts.
+    final a = await YaadDb.insertAccount('Counts A');
+    final b = await YaadDb.insertAccount('Counts B');
+    final now = DateTime(2026, 10, 3);
+
+    // Park A -> B (the build-25/26 bug: B showed "0 transactions"
+    // after exactly this move, because only the from-leg was counted).
+    await YaadDb.insertTxn(YaadTransaction(
+      amount: 5000,
+      dateTime: now,
+      direction: TxnDirection.ownTransfer,
+      kind: TxnKind.transfer,
+      purpose: 'savings',
+      accountId: a.id,
+      toAccountId: b.id,
+    ));
+    // Take part of it back, B -> A.
+    await YaadDb.insertTxn(YaadTransaction(
+      amount: 2000,
+      dateTime: now,
+      direction: TxnDirection.ownTransfer,
+      kind: TxnKind.transfer,
+      purpose: 'savings',
+      accountId: b.id,
+      toAccountId: a.id,
+    ));
+    // A plain spend counts once, for its own account only.
+    await YaadDb.insertTxn(YaadTransaction(
+      amount: 300,
+      dateTime: now,
+      kind: TxnKind.spend,
+      rawMerchant: 'COUNTS SHOP',
+      accountId: a.id,
+    ));
+
+    final counts = await YaadDb.txnCountsByAccount();
+    // A: the park out + the take-back in + the spend = 3.
+    expect(counts[a.id], 3);
+    // B: the park in + the take-back out = 2.
+    expect(counts[b.id], 2);
+  });
+
   test('backup export includes accounts; restore never duplicates seeds',
       () async {
     final path = await BackupService().exportJson();

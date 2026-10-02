@@ -1041,12 +1041,19 @@ class _TxnRow extends StatelessWidget {
             Icon(icon, size: 12, color: tint),
             const SizedBox(width: 4),
           ],
-          Text(label,
-              style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w600,
-                  color: tint,
-                  height: 1.2)),
+          // Flexible + ellipsis: when a wide amount ("PKR 1,00,000")
+          // squeezes the card body, the chip shrinks and its label
+          // ellipsizes instead of overflowing the card (build-26).
+          Flexible(
+            child: Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: tint,
+                    height: 1.2)),
+          ),
         ],
       ),
     );
