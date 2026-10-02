@@ -35,6 +35,7 @@ class ParsedRow {
   final bool isDuplicate;
   bool selected;
   bool suggestedTransfer;
+
   /// Purpose the statement parser suggested (e.g. Meezan keyword map).
   /// Null means "no opinion" — commitRows falls back to the default.
   final String? suggestedPurpose;
@@ -71,6 +72,54 @@ class ParsedStatement {
   });
 }
 
+/// Occurrence-aware duplicate detection for statement imports.
+///
+/// Why not just "does an identical row exist?": real statements contain
+/// LEGITIMATE repeats — e.g. several identical PKR 35.00 "Bank Charges"
+/// rows on the same day in the user's real Meezan statement (7 of them).
+/// Existence-based matching (YaadDb.findDuplicate) silently dropped
+/// every repeat after the first at commit time.
+///
+/// This snapshot counts how many copies of each amount+merchant+day
+/// the database ALREADY holds. A file row is a duplicate only while an
+/// unconsumed database copy remains: a file with 3 identical charges
+/// imports all 3 the first time, and re-importing the same file flags
+/// all 3 (the database now holds 3). Rows WITH a bank reference match
+/// on the reference alone, which is unique per transaction.
+class _DupSnapshot {
+  final Set<String> _refs;
+  final Map<String, int> _amtCounts;
+
+  _DupSnapshot(this._refs, this._amtCounts);
+
+  static String amtKey(double amount, String merchant, DateTime date) =>
+      '$amount|${merchant.trim().toLowerCase()}|'
+      '${date.year}-${date.month}-${date.day}';
+
+  /// Returns true when [row] duplicates something already in the
+  /// database (or an identical reference earlier in this same file),
+  /// consuming one stored copy. Call in file order.
+  bool consume({
+    String? reference,
+    required double amount,
+    required String merchant,
+    required DateTime date,
+  }) {
+    if (reference != null && reference.isNotEmpty) {
+      // Set.add returns false when the reference was already there:
+      // in the database, or on an earlier row of this file.
+      return !_refs.add(reference);
+    }
+    final key = amtKey(amount, merchant, date);
+    final existing = _amtCounts[key] ?? 0;
+    if (existing > 0) {
+      _amtCounts[key] = existing - 1;
+      return true;
+    }
+    return false;
+  }
+}
+
 /// Remembers which columns meant what, per statement layout.
 /// The next file with the same header row imports with zero setup.
 class ColumnMappingMemory {
@@ -96,8 +145,7 @@ class ColumnMappingMemory {
       String signature, Map<String, int> mapping) async {
     if (signature.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-        '$_key::$signature',
+    await prefs.setString('$_key::$signature',
         mapping.entries.map((e) => '${e.key}=${e.value}').join(','));
   }
 }
@@ -115,7 +163,16 @@ class StatementImporter {
     final fileName = path.split(Platform.pathSeparator).last;
     List<List<String>> rows;
     if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
-      rows = _readExcel(path);
+      try {
+        rows = _readExcel(path);
+      } catch (_) {
+        // Not a real Excel workbook (e.g. an old binary .xls, or a CSV
+        // renamed .xlsx): land on the preview with a plain error and no
+        // rows instead of throwing into the generic failure dialog.
+        return ParsedStatement(
+            fileName: fileName,
+            errors: ['Could not read any rows from the file.']);
+      }
     } else if (lower.endsWith('.pdf')) {
       final text = await extractPdfText(path);
       if (text.trim().isEmpty) {
@@ -126,11 +183,11 @@ class StatementImporter {
       }
       rows = _rowsFromText(text);
     } else {
-      final text = await File(path).readAsString();
-      rows = const CsvToListConverter()
-          .convert(text, eol: '\n')
-          .map((r) => r.map((c) => c.toString()).toList())
-          .toList();
+      var text = await File(path).readAsString();
+      // A UTF-8 BOM survives readAsString and poisons the first header
+      // cell ("\uFEFFDate"), which then matches no known column name.
+      if (text.startsWith('\uFEFF')) text = text.substring(1);
+      rows = _convertDelimited(text);
       if (rows.length < 2 || rows.first.length < 2) {
         rows = _rowsFromText(text);
       }
@@ -141,6 +198,32 @@ class StatementImporter {
           errors: ['Could not read any rows from the file.']);
     }
     return _parseRows(rows, fileName);
+  }
+
+  /// CSV/TSV/semicolon-delimited text → rows. The delimiter is sniffed
+  /// from the first non-empty line: many bank exports (and Excel in
+  /// comma-decimal locales) use ';', and tab-separated '.txt' exports
+  /// are common — assuming ',' for all of them read the whole file as
+  /// one column and the import failed with a layout error.
+  List<List<String>> _convertDelimited(String text) {
+    var delimiter = ',';
+    for (final line in text.split('\n')) {
+      final l = line.trim();
+      if (l.isEmpty) continue;
+      final tabs = '\t'.allMatches(l).length;
+      final semis = ';'.allMatches(l).length;
+      final commas = ','.allMatches(l).length;
+      if (tabs > 0 && tabs >= semis && tabs >= commas) {
+        delimiter = '\t';
+      } else if (semis > commas) {
+        delimiter = ';';
+      }
+      break;
+    }
+    return CsvToListConverter(fieldDelimiter: delimiter)
+        .convert(text, eol: '\n')
+        .map((r) => r.map((c) => c.toString()).toList())
+        .toList();
   }
 
   List<List<String>> _rowsFromText(String text) {
@@ -156,14 +239,19 @@ class StatementImporter {
   List<List<String>> _readExcel(String path) {
     final bytes = File(path).readAsBytesSync();
     final excel = Excel.decodeBytes(bytes);
-    final out = <List<String>>[];
     for (final table in excel.tables.values) {
+      final out = <List<String>>[];
       for (final row in table.rows) {
-        out.add(row.map((c) => c?.value?.toString() ?? '').toList());
+        final cells = row.map((c) => c?.value?.toString() ?? '').toList();
+        // Skip fully-empty rows: a blank first sheet (or spacer rows)
+        // must not make the sheet look "read" and hide the real data
+        // on the next sheet.
+        if (cells.every((c) => c.trim().isEmpty)) continue;
+        out.add(cells);
       }
-      if (out.isNotEmpty) break; // first non-empty sheet wins
+      if (out.isNotEmpty) return out; // first non-empty sheet wins
     }
-    return out;
+    return const [];
   }
 
   /// Meezan (Apache FOP) statements have their own glued layout, which
@@ -173,21 +261,22 @@ class StatementImporter {
   Future<ParsedStatement> _parseMeezan(String text, String fileName) async {
     final stmt = MeezanParser.parse(text);
     final parsed = <ParsedRow>[];
+    final snapshot = await _loadDupSnapshot();
     for (final r in stmt.rows) {
-      final dup = await YaadDb.findDuplicate(
-        bankReference: r.reference,
-        amount: r.amount,
-        rawMerchant: r.description,
-        date: r.date,
-      );
+      if (r.amount <= 0) continue; // a zero "row" is not a transaction
+      final isDup = snapshot.consume(
+          reference: r.reference,
+          amount: r.amount,
+          merchant: r.description,
+          date: r.date);
       parsed.add(ParsedRow(
         date: r.date,
         merchant: r.description,
         amount: r.amount,
         kind: r.kind,
         reference: r.reference,
-        isDuplicate: dup != null,
-        selected: dup == null,
+        isDuplicate: isDup,
+        selected: !isDup,
         suggestedPurpose: r.suggestedPurpose,
       ));
     }
@@ -199,6 +288,22 @@ class StatementImporter {
       mappingSignature: 'meezan-fop-v1',
       mapping: null,
     );
+  }
+
+  /// Loads everything needed for duplicate detection in ONE query
+  /// (the old code ran a DB query per row — 234 queries for a real
+  /// statement — and, worse, matched purely on existence).
+  Future<_DupSnapshot> _loadDupSnapshot() async {
+    final all = await YaadDb.txns(limit: 100000);
+    final refs = <String>{};
+    final amtCounts = <String, int>{};
+    for (final t in all) {
+      final ref = t.bankReference;
+      if (ref != null && ref.isNotEmpty) refs.add(ref);
+      final key = _DupSnapshot.amtKey(t.amount, t.rawMerchant, t.dateTime);
+      amtCounts[key] = (amtCounts[key] ?? 0) + 1;
+    }
+    return _DupSnapshot(refs, amtCounts);
   }
 
   Future<ParsedStatement> _parseRows(
@@ -216,8 +321,7 @@ class StatementImporter {
         break;
       }
     }
-    final header =
-        rows[headerIdx].map((h) => h.toLowerCase().trim()).toList();
+    final header = rows[headerIdx].map((h) => h.toLowerCase().trim()).toList();
     final signature = header.join('|');
 
     int col(List<String> names) {
@@ -253,6 +357,19 @@ class StatementImporter {
       refCol = remembered['ref'] ?? refCol;
     }
 
+    // "Debit Amount" / "Credit Amount" layouts: the generic 'amount'
+    // search lands ON the debit (or credit) column, and reading it as
+    // a single signed column then recorded every debit as money IN
+    // (positive → receive). The debit/credit pair is the truth —
+    // drop the amount column whenever it collides with, or coexists
+    // with, a debit+credit pair.
+    if (amountCol >= 0 &&
+        (amountCol == debitCol ||
+            amountCol == creditCol ||
+            (debitCol >= 0 && creditCol >= 0))) {
+      amountCol = -1;
+    }
+
     if (dateCol < 0 ||
         descCol < 0 ||
         (amountCol < 0 && debitCol < 0 && creditCol < 0)) {
@@ -273,12 +390,23 @@ class StatementImporter {
     final parsed = <ParsedRow>[];
     final errors = <String>[];
     final ocr = OcrService();
+    final snapshot = await _loadDupSnapshot();
 
     for (int i = headerIdx + 1; i < rows.length; i++) {
       final r = rows[i];
       try {
         String cell(int c) => c >= 0 && c < r.length ? r[c].trim() : '';
-        final date = ocr.findDate(cell(dateCol)) ?? DateTime.now();
+        // An unreadable date used to fall back to TODAY, silently
+        // re-dating old transactions to import day (and defeating
+        // duplicate detection, which keys on the calendar day). Skip
+        // the row and say so instead.
+        final date = ocr.findDate(cell(dateCol));
+        if (date == null) {
+          if (cell(descCol).isNotEmpty && errors.length < 5) {
+            errors.add('Row ${i + 1}: could not read the date — skipped.');
+          }
+          continue;
+        }
         final merchant = cell(descCol);
         if (merchant.isEmpty) continue;
 
@@ -295,8 +423,11 @@ class StatementImporter {
             isOut = false;
           }
         } else {
-          final dr = debitCol >= 0 ? _num(cell(debitCol)) : 0.0;
-          final cr = creditCol >= 0 ? _num(cell(creditCol)) : 0.0;
+          // Debit/credit columns carry magnitudes — a "(500.00)" or
+          // "-500" in the debit column is still 500 out, never a
+          // negative amount that would silently drop the row.
+          final dr = debitCol >= 0 ? _num(cell(debitCol)).abs() : 0.0;
+          final cr = creditCol >= 0 ? _num(cell(creditCol)).abs() : 0.0;
           if (cr > 0 && dr == 0) {
             amount = cr;
             isOut = false;
@@ -308,20 +439,19 @@ class StatementImporter {
         final ref = refCol >= 0 ? cell(refCol) : '';
         final reference = ref.isNotEmpty ? ref : null;
 
-        final dup = await YaadDb.findDuplicate(
-          bankReference: reference,
-          amount: amount,
-          rawMerchant: merchant,
-          date: date,
-        );
+        final isDup = snapshot.consume(
+            reference: reference,
+            amount: amount,
+            merchant: merchant,
+            date: date);
         parsed.add(ParsedRow(
           date: date,
           merchant: merchant,
           amount: amount,
           kind: isOut ? TxnKind.spend : TxnKind.receive,
           reference: reference,
-          isDuplicate: dup != null,
-          selected: dup == null,
+          isDuplicate: isDup,
+          selected: !isDup,
         ));
       } catch (e) {
         if (errors.length < 5) errors.add('Row ${i + 1}: $e');
@@ -342,9 +472,9 @@ class StatementImporter {
   /// transfer-ish wording. The preview screen lets the user confirm —
   /// never auto-applied.
   void _flagTransferPairs(List<ParsedRow> rows) {
-    final transferWords =
-        RegExp(r'transfer|own account|\bself\b|ibt|interbank|fund transfer',
-            caseSensitive: false);
+    final transferWords = RegExp(
+        r'transfer|own account|\bself\b|ibt|interbank|fund transfer',
+        caseSensitive: false);
     for (int i = 0; i < rows.length; i++) {
       final a = rows[i];
       if (a.kind != TxnKind.spend) continue;
@@ -372,15 +502,18 @@ class StatementImporter {
       {Map<String, int>? mapping, String? accountId}) async {
     int imported = 0, duplicates = 0, failed = 0;
     final errors = <String>[];
+    // Occurrence-aware duplicate check against the database as it is
+    // NOW (it may have changed since the preview was parsed).
+    final snapshot = await _loadDupSnapshot();
     for (final row in selected) {
       try {
-        final dup = await YaadDb.findDuplicate(
-          bankReference: row.reference,
+        final dup = snapshot.consume(
+          reference: row.reference,
           amount: row.amount,
-          rawMerchant: row.merchant,
+          merchant: row.merchant,
           date: row.date,
         );
-        if (dup != null) {
+        if (dup) {
           duplicates++;
           continue;
         }
@@ -416,7 +549,22 @@ class StatementImporter {
   }
 
   double _num(String s) {
-    final cleaned = s.replaceAll(RegExp(r'[^0-9.\-]'), '');
-    return double.tryParse(cleaned) ?? 0;
+    var t = s.trim();
+    if (t.isEmpty) return 0;
+    // Accounting negatives: "(1,234.56)" or a trailing minus mean the
+    // money went OUT. Stripping the brackets (the old behaviour) turned
+    // them into positive amounts — credits in the preview.
+    var negative = false;
+    if (t.startsWith('(') && t.endsWith(')')) {
+      negative = true;
+      t = t.substring(1, t.length - 1);
+    }
+    if (t.endsWith('-')) {
+      negative = true;
+      t = t.substring(0, t.length - 1);
+    }
+    final cleaned = t.replaceAll(RegExp(r'[^0-9.\-]'), '');
+    final v = double.tryParse(cleaned) ?? 0;
+    return negative ? -v.abs() : v;
   }
 }

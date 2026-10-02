@@ -68,8 +68,7 @@ class YaadApp extends StatelessWidget {
       builder: (context, _) {
         if (!appState.ready) {
           return const MaterialApp(
-              home: Scaffold(
-                  body: Center(child: CircularProgressIndicator())));
+              home: Scaffold(body: Center(child: CircularProgressIndicator())));
         }
         final s = appState.settings;
         ThemeMode mode;
@@ -122,8 +121,7 @@ class _GateState extends State<Gate> with WidgetsBindingObserver {
   bool _guardInFlight = false;
 
   bool get _appLockActive =>
-      appState.settings.appLock &&
-      ProService.canUseAppLock(appState.settings);
+      appState.settings.appLock && ProService.canUseAppLock(appState.settings);
 
   @override
   void initState() {
@@ -187,13 +185,20 @@ class _GateState extends State<Gate> with WidgetsBindingObserver {
           _authError = null;
         });
       }
-    } on PlatformException {
+      if (ok) {
+        // A notification tap that arrived while locked was stashed by
+        // CaptureNotify instead of opening above the lock screen —
+        // honour it now that the user is really in.
+        unawaited(CaptureNotify.openPendingAfterUnlock());
+      }
+    } on PlatformException catch (e) {
       // The prompt couldn't be shown. Stay locked and explain what to do —
-      // never silently unlock on error.
+      // never silently unlock on error. When the phone simply has no
+      // screen lock / nothing enrolled, say exactly that.
       if (mounted) {
         setState(() {
           _unlocked = false;
-          _authError = s.get('lockAuthFailed');
+          _authError = s.get(lockErrorKeyForPlatformCode(e.code));
         });
       }
     } finally {
@@ -205,8 +210,7 @@ class _GateState extends State<Gate> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     if (_firstBuild) {
-      WidgetsBinding.instance
-          .addPostFrameCallback((_) => _firstBuild = false);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _firstBuild = false);
     }
     if (!_unlocked) {
       final s = Strings(appState.settings.language);
@@ -364,21 +368,19 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     final messenger = ScaffoldMessenger.of(context);
     if (review > 0) {
       messenger.showSnackBar(SnackBar(
-        content: Text(
-            s.get('capturedReview').replaceFirst('{n}', '$review')),
+        content: Text(s.get('capturedReview').replaceFirst('{n}', '$review')),
         action: SnackBarAction(
           label: s.get('review'),
-          onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => const ReviewScreen())),
+          onPressed: () => Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => const ReviewScreen())),
         ),
         duration: const Duration(seconds: 6),
       ));
     }
     if (recorded > 0) {
       messenger.showSnackBar(SnackBar(
-        content: Text(s
-            .get('capturedRecorded')
-            .replaceFirst('{n}', '$recorded')),
+        content:
+            Text(s.get('capturedRecorded').replaceFirst('{n}', '$recorded')),
         duration: const Duration(seconds: 3),
       ));
     }
@@ -432,8 +434,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             end: 0,
             child: SafeArea(
               child: Padding(
-                padding:
-                    const EdgeInsetsDirectional.only(top: 4, end: 4),
+                padding: const EdgeInsetsDirectional.only(top: 4, end: 4),
                 child: ListenableBuilder(
                   listenable: CaptureInbox.instance,
                   builder: (context, _) {
@@ -443,8 +444,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                       label: Text('$n'),
                       child: IconButton(
                         tooltip: s.get('inboxTitle'),
-                        icon:
-                            const Icon(Icons.notifications_outlined),
+                        icon: const Icon(Icons.notifications_outlined),
                         onPressed: () => Navigator.of(context).push(
                           MaterialPageRoute(
                               builder: (_) => const InboxScreen()),

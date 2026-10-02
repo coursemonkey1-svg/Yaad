@@ -93,6 +93,18 @@ class CaptureInbox extends ChangeNotifier {
         _entries = [];
       }
     }
+    // Enforce the class invariants on whatever was persisted (an older
+    // build may have stored more than the cap, or out of order):
+    // newest first by entry time (stable for equal times), capped.
+    final order = List<int>.generate(_entries.length, (i) => i);
+    order.sort((a, b) {
+      final byTime = _entries[b].time.compareTo(_entries[a].time);
+      return byTime != 0 ? byTime : a.compareTo(b);
+    });
+    _entries = [for (final i in order) _entries[i]];
+    if (_entries.length > maxEntries) {
+      _entries.removeRange(maxEntries, _entries.length);
+    }
     _loaded = true;
     notifyListeners();
   }
@@ -111,20 +123,37 @@ class CaptureInbox extends ChangeNotifier {
     required bool needsReview,
   }) async {
     if (!_loaded) await load();
-    _entries.insert(
-      0,
-      InboxEntry(
-        id: const Uuid().v4(),
-        txnId: txnId,
-        merchant: merchant,
-        amount: amount,
-        time: time,
-        needsReview: needsReview,
-      ),
+    // One entry per transaction: if this txn was captured twice (e.g.
+    // the same bank alert arrived as both an SMS and a notification),
+    // the newest capture replaces the older entry instead of stacking
+    // a duplicate the user has to dismiss twice.
+    _entries.removeWhere((e) => e.txnId == txnId);
+    // Insert keeping newest-first order by entry time (a backdated
+    // alert must not jump above genuinely newer captures).
+    final entry = InboxEntry(
+      id: const Uuid().v4(),
+      txnId: txnId,
+      merchant: merchant,
+      amount: amount,
+      time: time,
+      needsReview: needsReview,
     );
+    var at = _entries.indexWhere((e) => e.time.isBefore(time));
+    if (at < 0) at = _entries.length;
+    _entries.insert(at, entry);
     if (_entries.length > maxEntries) {
       _entries.removeRange(maxEntries, _entries.length);
     }
+    await _save();
+    notifyListeners();
+  }
+
+  /// Removes one entry (e.g. when its transaction turns out to have
+  /// been deleted, so tapping it can never succeed again).
+  Future<void> removeEntry(String id) async {
+    final before = _entries.length;
+    _entries.removeWhere((e) => e.id == id);
+    if (_entries.length == before) return;
     await _save();
     notifyListeners();
   }

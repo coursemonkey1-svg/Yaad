@@ -27,6 +27,12 @@ class CaptureNotify {
   static const _promptedKey = 'capture_notif_prompted_v1';
   static String? _pendingPayload;
 
+  /// A transaction tap that arrived while the app lock was on. It must
+  /// never open above the lock screen (that would bypass the lock), but
+  /// dropping it silently loses the tap — so it is stashed here and
+  /// opened by [openPendingAfterUnlock] once Gate reports a real unlock.
+  static String? _pendingLockedTxnId;
+
   /// Call once from main() before runApp.
   static Future<void> init() async {
     await _plugin.initialize(
@@ -70,9 +76,28 @@ class CaptureNotify {
   /// read-only detail view, with the editor one explicit Edit tap away.
   static Future<void> openCapturedTxn(String txnId) async {
     // App lock is a real lock: never auto-open a transaction above it.
-    // The user lands on the lock screen; the inbox bell still works after.
+    // Stash the tap instead — Gate opens it after a successful unlock,
+    // so the tap is honoured, just only once the user is really in.
     final s = appState.settings;
-    if (s.appLock && ProService.canUseAppLock(s)) return;
+    if (s.appLock && ProService.canUseAppLock(s)) {
+      _pendingLockedTxnId = txnId;
+      return;
+    }
+    await _openTxn(txnId);
+  }
+
+  /// Called by Gate after a successful unlock: opens a transaction tap
+  /// that was stashed by [openCapturedTxn] while the app was locked.
+  /// No-op when nothing is stashed. Bypasses the lock check on purpose —
+  /// the caller (Gate) has just authenticated the user.
+  static Future<void> openPendingAfterUnlock() async {
+    final id = _pendingLockedTxnId;
+    if (id == null) return;
+    _pendingLockedTxnId = null;
+    await _openTxn(id);
+  }
+
+  static Future<void> _openTxn(String txnId) async {
     final txn = await YaadDb.txnById(txnId);
     final nav = navigatorKey.currentState;
     if (txn == null || nav == null) return;
@@ -166,8 +191,7 @@ class CaptureNotify {
       }
     });
     // Never hang the drain if no frame ever arrives.
-    return done.future.timeout(const Duration(seconds: 15),
-        onTimeout: () {});
+    return done.future.timeout(const Duration(seconds: 15), onTimeout: () {});
   }
 
   static Future<void> _post(YaadTransaction txn, bool needsReview) async {

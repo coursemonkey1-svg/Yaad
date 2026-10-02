@@ -47,8 +47,18 @@ class MeezanParser {
       RegExp(r'^\d*\d{1,2} (' + _mon + r') \d{4}, \d{1,2}:\d{2}$');
 
   static const _months = <String, int>{
-    'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
-    'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+    'jan': 1,
+    'feb': 2,
+    'mar': 3,
+    'apr': 4,
+    'may': 5,
+    'jun': 6,
+    'jul': 7,
+    'aug': 8,
+    'sep': 9,
+    'oct': 10,
+    'nov': 11,
+    'dec': 12,
   };
 
   /// True when the extracted text looks like a Meezan FOP statement.
@@ -59,12 +69,19 @@ class MeezanParser {
     final rows = <MeezanRow>[];
     MeezanHeader? header;
     var firstPage = true;
+    var pageSkipWarned = false;
 
     for (final line in text.split('\n')) {
       if (line.trim().isEmpty) continue;
       final mark = _markRe.firstMatch(line);
       if (mark == null) {
-        warnings.add('Skipped a page without the statement header.');
+        // One warning for this, however many header-less chunks the
+        // extractor produced — a flood of identical warnings buried
+        // the real ones in the preview.
+        if (!pageSkipWarned) {
+          warnings.add('Skipped a page without the statement header.');
+          pageSkipWarned = true;
+        }
         continue;
       }
       if (firstPage) {
@@ -80,7 +97,8 @@ class MeezanParser {
     for (var i = 0; i < rows.length; i++) {
       final r = rows[i];
       if (prev != null) {
-        final expected = prev + (r.kind == TxnKind.receive ? r.amount : -r.amount);
+        final expected =
+            prev + (r.kind == TxnKind.receive ? r.amount : -r.amount);
         if ((expected - r.balance).abs() > 0.011) {
           warnings.add('Balance check failed after "${r.description}": '
               'expected ${_fmt(expected)}, found ${_fmt(r.balance)}.');
@@ -139,11 +157,17 @@ class MeezanParser {
       }
     }
     final dateMatch = dateM!;
-    final date = DateTime(
-      int.parse(dateMatch.group(3)!),
-      _months[dateMatch.group(2)!.toLowerCase().substring(0, 3)]!,
-      int.parse(dateMatch.group(1)!),
-    );
+    final day = int.parse(dateMatch.group(1)!);
+    final month = _months[dateMatch.group(2)!.toLowerCase().substring(0, 3)]!;
+    final year = int.parse(dateMatch.group(3)!);
+    final date = DateTime(year, month, day);
+    // DateTime silently rolls impossible dates over (31 Feb → 3 Mar).
+    // A statement row must never be re-dated by a rollover — skip it.
+    if (date.day != day || date.month != month || date.year != year) {
+      warnings.add('Skipped a row with an invalid date: '
+          '"${_short(chunk)}".');
+      return null;
+    }
 
     final afterDate = body.substring(dateMatch.end);
     // The first signed PKR amount after the date is the transaction
@@ -200,8 +224,7 @@ class MeezanParser {
       if (m == null) return null;
       final month = _months[m.group(2)!.toLowerCase().substring(0, 3)];
       if (month == null) return null;
-      return DateTime(
-          int.parse(m.group(3)!), month, int.parse(m.group(1)!));
+      return DateTime(int.parse(m.group(3)!), month, int.parse(m.group(1)!));
     }
 
     double? grabAmt(String label) {
@@ -226,23 +249,28 @@ class MeezanParser {
     var s = raw.replaceAll('>', ' → ');
     // Insert a space on lowercase→Uppercase boundaries
     // ("WithdrawalHAFIZABAD" → "Withdrawal HAFIZABAD").
-    s = s.replaceAllMapped(
-        RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]} ${m[2]}');
+    s = s.replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]} ${m[2]}');
     s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
     return s;
   }
 
-  /// Bank reference: prefer the long Raast RRN; else a STAN qualified
-  /// with the amount (`STAN<digits>:<amount>`). Bare STANs repeat across
-  /// fee+transfer pairs, and YaadDb.findDuplicate matches on the
-  /// reference alone — an unqualified STAN would false-drop rows.
+  /// Bank reference: prefer a STAN qualified with the amount
+  /// (`STAN<digits>:<amount>`) whenever the row carries one — it is
+  /// unique to this transaction. The long-token fallback (Raast RRN)
+  /// is only safe when no STAN exists: remittance descriptions repeat
+  /// the SENDER's account token on every payment from that sender, so
+  /// taking the first long token as the reference made two different
+  /// remittances (PKR 63,400 and PKR 96,300 in a real statement) share
+  /// one "reference" — and reference-alone duplicate matching then
+  /// silently dropped the second payment. Bare STANs repeat across
+  /// fee+transfer pairs, hence the amount qualification.
   static String? _reference(String descRaw, double amount) {
-    final rrn = RegExp(r'[A-Z]{2,10}\d{8,}').firstMatch(descRaw);
-    if (rrn != null) return rrn.group(0);
     final stan = RegExp(r'STAN\s*\(?(\d+)\)?').firstMatch(descRaw);
     if (stan != null) {
       return 'STAN${stan.group(1)}:${amount.toStringAsFixed(2)}';
     }
+    final rrn = RegExp(r'[A-Z]{2,10}\d{8,}').firstMatch(descRaw);
+    if (rrn != null) return rrn.group(0);
     return null;
   }
 
@@ -250,8 +278,7 @@ class MeezanParser {
   /// map to uncategorized/other_in — never guess gift vs loan; the user
   /// marks Udhaar in the preview.
   static String? _suggestPurpose(String descLower, TxnKind kind) {
-    bool hasAny(List<String> kws) =>
-        kws.any((k) => descLower.contains(k));
+    bool hasAny(List<String> kws) => kws.any((k) => descLower.contains(k));
 
     if (kind == TxnKind.receive) {
       if (hasAny(const ['adjustment reversal', 'reversal'])) return 'refund';
@@ -308,8 +335,7 @@ class MeezanParser {
     return null;
   }
 
-  static double _parseAmt(String s) =>
-      double.parse(s.replaceAll(',', ''));
+  static double _parseAmt(String s) => double.parse(s.replaceAll(',', ''));
 
   static String _fmt(double v) => v.toStringAsFixed(2);
 

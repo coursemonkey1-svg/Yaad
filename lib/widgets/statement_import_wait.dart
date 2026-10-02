@@ -49,7 +49,32 @@ class StatementImportResult {
 ///   the explicit Cancel button — and the Android back button, which acts
 ///   as Cancel — always end it. The dialog is dismissed exactly once no
 ///   matter which path fires first.
+/// True while one [runStatementImport] wait is on screen. A second
+/// concurrent call (e.g. a double-tap on Settings → Import statement)
+/// returns `cancelled` immediately instead of stacking a second
+/// progress dialog and, later, a second preview route.
+bool _importWaitInFlight = false;
+
 Future<StatementImportResult> runStatementImport(
+  BuildContext context, {
+  required String path,
+  required Strings strings,
+  required Future<ParsedStatement> Function(String path) parse,
+  Duration timeout = const Duration(seconds: 60),
+}) async {
+  if (_importWaitInFlight) {
+    return const StatementImportResult(StatementImportOutcome.cancelled);
+  }
+  _importWaitInFlight = true;
+  try {
+    return await _runStatementImport(context,
+        path: path, strings: strings, parse: parse, timeout: timeout);
+  } finally {
+    _importWaitInFlight = false;
+  }
+}
+
+Future<StatementImportResult> _runStatementImport(
   BuildContext context, {
   required String path,
   required Strings strings,
@@ -108,12 +133,10 @@ Future<StatementImportResult> runStatementImport(
       sw.stop();
       debugPrint('[import] parse ok: ${sw.elapsedMilliseconds}ms, '
           '${parsed.rows.length} rows');
-      return StatementImportResult(
-          StatementImportOutcome.ready, parsed);
+      return StatementImportResult(StatementImportOutcome.ready, parsed);
     } on TimeoutException {
       sw.stop();
-      debugPrint(
-          '[import] parse timed out after ${sw.elapsedMilliseconds}ms');
+      debugPrint('[import] parse timed out after ${sw.elapsedMilliseconds}ms');
       return const StatementImportResult(StatementImportOutcome.timedOut);
     } catch (e) {
       sw.stop();
@@ -137,8 +160,7 @@ Future<StatementImportResult> runStatementImport(
 /// Plain-language "couldn't read the file" dialog, used for both timeouts
 /// and parse failures: nothing was imported, and the user knows what to try
 /// next.
-Future<void> showImportReadFailedDialog(
-    BuildContext context, Strings strings) {
+Future<void> showImportReadFailedDialog(BuildContext context, Strings strings) {
   return showDialog(
     context: context,
     builder: (_) => AlertDialog(
