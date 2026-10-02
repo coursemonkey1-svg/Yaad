@@ -66,6 +66,7 @@ void registerCustomPurposes(Map<String, String> labels) {
 bool isCustomPurpose(String id) => _customLabels.containsKey(id);
 
 String purposeLabel(String id) {
+  if (id == 'savings') return 'Savings';
   for (final p in kSpendPurposes) {
     if (p.id == id) return p.label;
   }
@@ -76,6 +77,7 @@ String purposeLabel(String id) {
 }
 
 IconData purposeIcon(String id) {
+  if (id == 'savings') return Icons.savings_outlined;
   for (final p in kSpendPurposes) {
     if (p.id == id) return p.icon;
   }
