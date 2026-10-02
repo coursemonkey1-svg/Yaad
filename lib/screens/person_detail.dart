@@ -6,11 +6,13 @@ import '../l10n/strings.dart';
 import '../main.dart';
 import '../models/lending.dart';
 import '../models/person.dart';
+import '../models/transaction.dart';
 import '../services/pro.dart';
 import '../theme.dart';
 import '../widgets/atoms.dart';
 import 'borrow.dart';
 import 'lend.dart';
+import 'lending_detail.dart';
 import 'pro.dart';
 import 'repay.dart';
 
@@ -40,7 +42,10 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
             }
             final d = snap.data!;
             return ListView(
-              padding: const EdgeInsets.all(Gap.x2),
+              // Extra bottom clearance: the history's last row must
+              // never sit flush under the screen edge.
+              padding: const EdgeInsets.fromLTRB(
+                  Gap.x2, Gap.x2, Gap.x2, Gap.x4),
               children: [
                 _BalanceHeader(detail: d, person: widget.person),
                 const SizedBox(height: Gap.x2),
@@ -105,9 +110,15 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                 if (d.records.isEmpty)
                   Text(s.get('noUdhaarYet'),
                       style: Theme.of(context).textTheme.bodyMedium),
-                for (final r in d.records)
-                  _RecordRow(
-                      detail: d, record: r, person: widget.person),
+                for (final e in d.entries)
+                  if (e.repayment == null)
+                    _LendingRow(
+                        detail: d, record: e.record, person: widget.person)
+                  else
+                    _RepaymentRow(
+                        record: e.record,
+                        repayment: e.repayment!,
+                        person: widget.person),
               ],
             );
           },
@@ -120,15 +131,26 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     final records = await YaadDb.lendingForPerson(widget.person.id);
     double owedToMe = 0, iOwe = 0;
     final remaining = <String, double>{};
+    final repaid = <String, double>{};
+    final entries = <_HistoryEntry>[];
     for (final r in records) {
+      entries.add(_HistoryEntry(record: r, date: r.date));
+      // Actual repayments for EVERY record — the statement needs the
+      // real repaid figure even for settled/written-off records,
+      // where "original − remaining" would claim a full repayment
+      // that never happened.
+      final paid = await YaadDb.totalRepaid(r.id);
+      repaid[r.id] = paid;
+      for (final rep in await YaadDb.repaymentsFor(r.id)) {
+        entries.add(_HistoryEntry(record: r, repayment: rep, date: rep.date));
+      }
       if (r.status == LendingStatus.settled ||
           r.status == LendingStatus.writtenOff ||
           r.status == LendingStatus.gift) {
         remaining[r.id] = 0;
         continue;
       }
-      final repaid = await YaadDb.totalRepaid(r.id);
-      final rem = r.originalAmount - repaid;
+      final rem = r.originalAmount - paid;
       remaining[r.id] = rem;
       if (rem <= 0.005) continue;
       if (r.isOwedToMe) {
@@ -137,7 +159,16 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
         iOwe += rem;
       }
     }
-    return _Detail(records, remaining, owedToMe, iOwe);
+    // Newest first; a lend/borrow sorts before its own repayments
+    // when they share a timestamp.
+    entries.sort((a, b) {
+      final byDate = b.date.compareTo(a.date);
+      if (byDate != 0) return byDate;
+      if (a.repayment == null && b.repayment != null) return -1;
+      if (a.repayment != null && b.repayment == null) return 1;
+      return 0;
+    });
+    return _Detail(records, remaining, repaid, entries, owedToMe, iOwe);
   }
 
   void _openRepay(BuildContext context, bool theyPaidMe) {
@@ -173,6 +204,24 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
       if (rem <= 0.005) continue;
       await YaadDb.addRepayment(
           Repayment(lendingId: r.id, amount: rem, date: now));
+      // Mirror RepayScreen: the settlement is real money movement,
+      // so it also lands in Activity as a "Paid back" transaction —
+      // settle-up must not be invisible there.
+      await YaadDb.insertTxn(YaadTransaction(
+        amount: rem,
+        currency: appState.settings.currency,
+        dateTime: now,
+        kind: r.isOwedToMe ? TxnKind.repayIn : TxnKind.repayOut,
+        direction:
+            r.isOwedToMe ? TxnDirection.incoming : TxnDirection.out,
+        rawMerchant: widget.person.name,
+        purpose: 'uncategorized',
+        note: r.reason,
+        personId: widget.person.id,
+        linkedLendingId: r.id,
+        source: TxnSource.manual,
+        accountId: appState.settings.defaultAccountId,
+      ));
     }
     appState.refresh();
   }
@@ -194,12 +243,12 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
       ..writeln('---');
     for (final r in d.records) {
       final dir = r.isOwedToMe ? s.get('iLent') : s.get('iBorrowed');
-      final repaid = r.originalAmount - (d.remaining[r.id] ?? 0);
+      final repaid = d.repaid[r.id] ?? 0;
       buf
         ..writeln(
             '$dir ${appState.money(r.originalAmount)} — ${appState.formatDate(r.date)}${r.reason.isNotEmpty ? ' (${r.reason})' : ''}')
         ..writeln(
-            '  ${s.get('repaid')}: ${appState.money(repaid)} · ${s.get('remaining')}: ${appState.money(d.remaining[r.id] ?? 0)} · ${r.status.name}');
+            '  ${s.get('repaid')}: ${appState.money(repaid)} · ${s.get('remaining')}: ${appState.money(d.remaining[r.id] ?? 0)} · ${lendingStatusLabel(s, r.status)}');
     }
     buf
       ..writeln('---')
@@ -230,10 +279,28 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
 class _Detail {
   final List<LendingRecord> records;
   final Map<String, double> remaining;
+  final Map<String, double> repaid;
+  final List<_HistoryEntry> entries;
   final double owedToMe, iOwe;
   double get net => owedToMe - iOwe;
-  _Detail(this.records, this.remaining, this.owedToMe, this.iOwe);
+  _Detail(this.records, this.remaining, this.repaid, this.entries,
+      this.owedToMe, this.iOwe);
 }
+
+/// One row of the unified History: a lend/borrow record
+/// ([repayment] == null) or one of its repayments.
+class _HistoryEntry {
+  final LendingRecord record;
+  final Repayment? repayment;
+  final DateTime date;
+  const _HistoryEntry(
+      {required this.record, this.repayment, required this.date});
+}
+
+/// Plain-words, localised label for a lending status — never the raw
+/// enum name ("partial") in the UI or the shared statement.
+String lendingStatusLabel(Strings s, LendingStatus status) =>
+    s.get('lendingStatus_${status.name}');
 
 class _BalanceHeader extends StatelessWidget {
   final _Detail detail;
@@ -245,17 +312,26 @@ class _BalanceHeader extends StatelessWidget {
     final s = Strings(appState.settings.language);
     final cs = Theme.of(context).colorScheme;
     final net = detail.net;
+    // The outstanding amount is the HEADLINE: the full plain-words
+    // line ("Ahmed owes you PKR 500" / "You owe Ahmed PKR 500") at
+    // display size. (The old build composed the 'owesYou' fragment,
+    // which has no {amount} placeholder — the amount never showed.)
     final String line;
     final Color color;
     if (net > 0.005) {
       line = s
-          .get('owesYou')
+          .get('owesYouLine')
+          .replaceFirst('{name}', person.name)
           .replaceFirst('{amount}', appState.money(net));
       color = Colors.green;
     } else if (net < -0.005) {
-      line = s.get('youOwe').replaceFirst('{amount}', appState.money(-net));
+      line = s
+          .get('youOweLine')
+          .replaceFirst('{name}', person.name)
+          .replaceFirst('{amount}', appState.money(-net));
       color = cs.error;
     } else {
+      // Settled: calm, no figure.
       line = s.get('allSettled');
       color = cs.onSurfaceVariant;
     }
@@ -275,7 +351,7 @@ class _BalanceHeader extends StatelessWidget {
           Text(line,
               textAlign: TextAlign.center,
               style: TextStyle(
-                  fontSize: 20,
+                  fontSize: 22,
                   fontWeight: FontWeight.bold,
                   color: color)),
         ],
@@ -318,43 +394,104 @@ class _Action extends StatelessWidget {
   }
 }
 
-class _RecordRow extends StatelessWidget {
+/// A lend/borrow history row. Layout: the amount lives in its own
+/// trailing column and NEVER wraps (the old one-phrase title wrapped
+/// mid-amount: "I borrowed PKR" / "500"); title and subtitle are
+/// single lines with ellipsis as the backstop. The whole row taps
+/// into the entry's detail view (view / edit / delete).
+class _LendingRow extends StatelessWidget {
   final _Detail detail;
   final LendingRecord record;
   final Person person;
-  const _RecordRow(
+  const _LendingRow(
       {required this.detail, required this.record, required this.person});
 
   @override
   Widget build(BuildContext context) {
     final s = Strings(appState.settings.language);
+    final cs = Theme.of(context).colorScheme;
     final rem = detail.remaining[record.id] ?? 0;
     final dir = record.isOwedToMe ? s.get('iLent') : s.get('iBorrowed');
     return ListTile(
       leading: CircleAvatar(
-        backgroundColor: Theme.of(context)
-            .colorScheme
-            .surfaceContainerHighest
-            .withValues(alpha: 0.7),
+        backgroundColor:
+            cs.surfaceContainerHighest.withValues(alpha: 0.7),
         child: Icon(
             record.isOwedToMe ? Icons.north_east : Icons.south_west),
       ),
       title: Text(
-          '$dir ${appState.money(record.originalAmount)}${record.reason.isNotEmpty ? ' · ${record.reason}' : ''}'),
+          record.reason.isEmpty ? dir : '$dir · ${record.reason}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Text(
-          '${appState.formatDate(record.date)} · ${s.get('remaining')}: ${appState.money(rem)} · ${record.status.name}'),
-      trailing: rem > 0.005
-          ? TextButton(
-              onPressed: () => Navigator.of(context)
-                  .push(MaterialPageRoute(
-                      builder: (_) => RepayScreen(
-                          person: person,
-                          theyPaidMe: record.isOwedToMe,
-                          preselected: record)))
-                  .then((_) => appState.refresh()),
-              child: Text(s.get('repay')),
-            )
-          : null,
+          '${appState.formatDate(record.date)} · ${lendingStatusLabel(s, record.status)}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis),
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(appState.money(record.originalAmount),
+              maxLines: 1,
+              softWrap: false,
+              style: const TextStyle(
+                  fontWeight: FontWeight.bold, fontSize: 15)),
+          Text(
+              '${s.get('remaining')}: ${appState.money(rem)}',
+              maxLines: 1,
+              softWrap: false,
+              style: TextStyle(fontSize: 11.5, color: cs.onSurfaceVariant)),
+        ],
+      ),
+      onTap: () => Navigator.of(context)
+          .push(MaterialPageRoute(
+              builder: (_) => LendingDetailScreen(
+                  lendingId: record.id, person: person)))
+          .then((_) => appState.refresh()),
+    );
+  }
+}
+
+/// A repayment history row — same one-line-amount layout, taps into
+/// the repayment's detail view (view / edit / delete).
+class _RepaymentRow extends StatelessWidget {
+  final LendingRecord record;
+  final Repayment repayment;
+  final Person person;
+  const _RepaymentRow(
+      {required this.record, required this.repayment, required this.person});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Strings(appState.settings.language);
+    final cs = Theme.of(context).colorScheme;
+    return ListTile(
+      leading: CircleAvatar(
+        backgroundColor:
+            cs.surfaceContainerHighest.withValues(alpha: 0.7),
+        child: const Icon(Icons.payments_outlined),
+      ),
+      title: Text(s.get('kind_repayIn'),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Text(
+          repayment.note.isEmpty
+              ? appState.formatDate(repayment.date)
+              : '${appState.formatDate(repayment.date)} · ${repayment.note}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis),
+      trailing: Text(appState.money(repayment.amount),
+          maxLines: 1,
+          softWrap: false,
+          style:
+              const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+      onTap: () => Navigator.of(context)
+          .push(MaterialPageRoute(
+              builder: (_) => RepaymentDetailScreen(
+                  repayment: repayment, record: record, person: person)))
+          .then((_) => appState.refresh()),
     );
   }
 }

@@ -21,12 +21,36 @@ class AppSettings {
   final bool appLockGrandfathered; // v1.0 users keep free app lock
   final String accentTheme; // "teal" free; others are Pro
   final String activityView; // "detailed" | "compact" — Activity list density
+  final String period; // shared viewing period — see AppState.periodRangeMs
   final String defaultAccountId; // id of the default Account ("meezan")
   final bool showSavings; // Savings section visible on Home (default on)
 
   /// Valid values for [activityView].
   static const String viewDetailed = 'detailed';
   static const String viewCompact = 'compact';
+
+  /// Valid fixed values for [period]. A specific month is stored as
+  /// 'month:YYYY-MM' (see [isPeriodValue]).
+  static const String periodThisWeek = 'thisWeek';
+  static const String periodThisMonth = 'thisMonth';
+  static const String periodLastMonth = 'lastMonth';
+  static const String periodThisYear = 'thisYear';
+  static const String periodAllTime = 'allTime';
+
+  /// Whether [v] is a storable period value: one of the fixed values
+  /// above, or 'month:YYYY-MM' for a specific picked month.
+  static bool isPeriodValue(String v) {
+    switch (v) {
+      case periodThisWeek:
+      case periodThisMonth:
+      case periodLastMonth:
+      case periodThisYear:
+      case periodAllTime:
+        return true;
+      default:
+        return RegExp(r'^month:\d{4}-(0[1-9]|1[0-2])$').hasMatch(v);
+    }
+  }
 
   const AppSettings({
     this.currency = 'PKR',
@@ -49,6 +73,7 @@ class AppSettings {
     this.appLockGrandfathered = false,
     this.accentTheme = 'teal',
     this.activityView = viewDetailed,
+    this.period = periodThisMonth,
     this.defaultAccountId = 'meezan',
     this.showSavings = true,
   });
@@ -74,6 +99,7 @@ class AppSettings {
     bool? appLockGrandfathered,
     String? accentTheme,
     String? activityView,
+    String? period,
     String? defaultAccountId,
     bool? showSavings,
   }) =>
@@ -99,6 +125,7 @@ class AppSettings {
             appLockGrandfathered ?? this.appLockGrandfathered,
         accentTheme: accentTheme ?? this.accentTheme,
         activityView: activityView ?? this.activityView,
+        period: period ?? this.period,
         defaultAccountId: defaultAccountId ?? this.defaultAccountId,
         showSavings: showSavings ?? this.showSavings,
       );
@@ -124,12 +151,14 @@ class AppSettings {
         'appLockGrandfathered': appLockGrandfathered,
         'accentTheme': accentTheme,
         'activityView': activityView,
+        'period': period,
         'defaultAccountId': defaultAccountId,
         'showSavings': showSavings,
       };
 
   factory AppSettings.fromMap(Map<String, Object?> m) {
     final view = m['activityView'] as String? ?? viewDetailed;
+    final periodRaw = m['period'] as String? ?? periodThisMonth;
     return AppSettings(
         currency: m['currency'] as String? ?? 'PKR',
         timezone: m['timezone'] as String? ?? 'Asia/Karachi',
@@ -152,6 +181,7 @@ class AppSettings {
         accentTheme: m['accentTheme'] as String? ?? 'teal',
         activityView:
             (view == viewCompact) ? viewCompact : viewDetailed,
+        period: isPeriodValue(periodRaw) ? periodRaw : periodThisMonth,
         defaultAccountId: m['defaultAccountId'] as String? ?? 'meezan',
         showSavings: m['showSavings'] as bool? ?? true,
       );
