@@ -333,6 +333,9 @@ class Strings {
     'proActive': 'Pro is active on this phone — thank you.',
     'proGet': 'Unlock PDF statements, backups, extras.',
     'importReading': 'Reading your statement…',
+    'importReadFailTitle': 'Couldn’t read that file',
+    'importReadFailBody':
+        'Yaad couldn’t read this file — nothing was added and your data is safe.\n\nTry again, or try a different file. A CSV or Excel statement from your bank app works best.',
     'pdfNoTextTitle': 'Couldn’t read this PDF',
     'pdfNoTextBody':
         'Yaad couldn’t find any text in this PDF — it’s likely a scanned statement (photos of pages, not real text). Nothing was imported; your data is safe.\n\nTo import from Meezan:\n1. Open the Meezan app → Accounts → choose your account.\n2. Open Statement / Transaction history and pick your dates.\n3. Tap Download or Share → choose CSV (or Excel).\n4. Back in Yaad: Settings → Import statement → pick that file.\n\nCSV and Excel always import cleanly.',
@@ -782,6 +785,9 @@ class Strings {
     'proActive': 'اس فون پر پرو فعال ہے — شکریہ۔',
     'proGet': 'PDF اسٹیٹمنٹس، بیک اپ، اضافی فیچرز کھولیں۔',
     'importReading': 'آپ کی اسٹیٹمنٹ پڑھی جا رہی ہے…',
+    'importReadFailTitle': 'یہ فائل پڑھی نہیں جا سکی',
+    'importReadFailBody':
+        'یاد یہ فائل نہیں پڑھ سکی — کچھ بھی شامل نہیں ہوا اور آپ کا ڈیٹا محفوظ ہے۔\n\nدوبارہ کوشش کریں، یا کوئی دوسری فائل آزمائیں۔ آپ کے بینک ایپ سے CSV یا Excel اسٹیٹمنٹ بہترین رہتی ہے۔',
     'pdfNoTextTitle': 'یہ PDF پڑھی نہیں جا سکی',
     'pdfNoTextBody':
         'یاد کو اس PDF میں کوئی متن نہیں ملا — یہ شاید اسکین شدہ اسٹیٹمنٹ ہے (صفحات کی تصویریں، اصل متن نہیں)۔ کچھ درآمد نہیں ہوا؛ آپ کا ڈیٹا محفوظ ہے۔\n\nمیزان سے درآمد کے لیے:\n1. میزان ایپ کھولیں → اکاؤنٹس → اپنا اکاؤنٹ چنیں۔\n2. اسٹیٹمنٹ / ٹرانزیکشن ہسٹری کھولیں اور تاریخیں چنیں۔\n3. ڈاؤن لوڈ یا شیئر دبائیں → CSV (یا Excel) چنیں۔\n4. واپس یاد میں: سیٹنگز → اسٹیٹمنٹ درآمد کریں → وہ فائل چنیں۔\n\nCSV اور Excel ہمیشہ صاف درآمد ہوتے ہیں۔',

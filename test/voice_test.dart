@@ -73,8 +73,7 @@ void main() {
   group('database', () {
     /// Faithful replica of the v3 transactions schema (pre-v1.3):
     /// has `kind`, no voice columns.
-    Future<String> freshV3Db() async {
-      final dir = await getDatabasesPath();
+    Future<String> freshV3Db() async {      final dir = await getDatabasesPath();
       final path = p.join(dir, 'yaad.db');
       try {
         await File(path).delete();
@@ -157,6 +156,59 @@ void main() {
       expect(t.kind, TxnKind.spend);
       expect(t.audioPath, isNull);
       expect(t.voiceNote, isNull);
+    });
+
+    // The v3 layout above lives at the shared test-DB path, which every
+    // DB test file uses — and it lacks the people/lending/repayments/
+    // aliases tables. Heal it to the full schema here so a leftover
+    // partial file can never break another file's setUp with
+    // "no such table". (Deleting the file instead is NOT safe: this
+    // isolate's later tests keep writing through YaadDb's cached
+    // connection, and SQLite refuses writes once its file is moved.)
+    tearDown(() async {
+      final d = await YaadDb.db;
+      for (final ddl in [
+        '''CREATE TABLE IF NOT EXISTS people(
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          phone TEXT,
+          note TEXT NOT NULL,
+          createdAt INTEGER NOT NULL
+        )''',
+        '''CREATE TABLE IF NOT EXISTS lending(
+          id TEXT PRIMARY KEY,
+          personId TEXT NOT NULL,
+          type TEXT NOT NULL,
+          originalAmount REAL NOT NULL,
+          currency TEXT NOT NULL,
+          date INTEGER NOT NULL,
+          reason TEXT NOT NULL,
+          dueDate INTEGER,
+          note TEXT NOT NULL,
+          receiptPath TEXT,
+          isOwedToMe INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          createdAt INTEGER NOT NULL,
+          updatedAt INTEGER NOT NULL
+        )''',
+        '''CREATE TABLE IF NOT EXISTS repayments(
+          id TEXT PRIMARY KEY,
+          lendingId TEXT NOT NULL,
+          amount REAL NOT NULL,
+          date INTEGER NOT NULL,
+          note TEXT NOT NULL,
+          transactionId TEXT
+        )''',
+        '''CREATE TABLE IF NOT EXISTS aliases(
+          id TEXT PRIMARY KEY,
+          rawName TEXT NOT NULL UNIQUE,
+          alias TEXT NOT NULL,
+          usageCount INTEGER NOT NULL,
+          lastUsed INTEGER NOT NULL
+        )''',
+      ]) {
+        await d.execute(ddl);
+      }
     });
 
     test('deleteTxn deletes the attached audio file', () async {
