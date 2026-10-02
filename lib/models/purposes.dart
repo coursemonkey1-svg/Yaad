@@ -33,7 +33,9 @@ const kSpendPurposes = <Purpose>[
   Purpose('family', 'Family', Icons.family_restroom_outlined,
       'Parents, kids, home'),
   Purpose('personal', 'Personal', Icons.person_outline, 'Just for you'),
-  Purpose('uncategorized', 'Other', Icons.help_outline, ''),
+  // "Other" gets a tag, never a question mark — a bare "?" in the
+  // icon circle reads as a broken/missing icon to a buyer.
+  Purpose('uncategorized', 'Other', Icons.tag_outlined, ''),
 ];
 
 /// Where received money came from ("I received" path).
@@ -42,7 +44,7 @@ const kReceiveSources = <Purpose>[
   Purpose('business', 'Business', Icons.store_outlined, ''),
   Purpose('gift', 'Gift', Icons.card_giftcard_outlined, ''),
   Purpose('refund', 'Refund', Icons.undo_outlined, ''),
-  Purpose('other_in', 'Other', Icons.help_outline, ''),
+  Purpose('other_in', 'Other', Icons.tag_outlined, ''),
 ];
 
 /// Legacy alias: the full spend list (used by grids/filters).
@@ -86,7 +88,9 @@ IconData purposeIcon(String id) {
   }
   // Custom purposes get the same tag icon their picker tile uses.
   if (_customLabels.containsKey(id)) return Icons.tag;
-  return Icons.help_outline;
+  // Unknown ids (e.g. a purpose from a newer version) still get a
+  // neutral tag — never a question mark.
+  return Icons.tag_outlined;
 }
 
 String purposeHint(String id) {

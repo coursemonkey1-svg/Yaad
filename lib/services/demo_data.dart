@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../data/db.dart';
 import '../models/account.dart';
 import '../models/custom_purpose.dart';
@@ -19,6 +23,18 @@ import '../models/transaction.dart';
 /// history for Activity and the month summary.
 class DemoData {
   DemoData._();
+
+  /// SharedPreferences key holding the pre-demo opening balances, so
+  /// Remove restores them exactly (demo sets its own openings to make
+  /// the balances look real; the user's own openings must survive).
+  static const _kOpeningsKey = 'yaad_demo_opening_balances_v1';
+
+  /// The openings the demo runs with: a believable month-start state.
+  static const _demoOpenings = {
+    Account.seedMeezan: 120000.0,
+    Account.seedSavings: 20000.0,
+    Account.seedCash: 5000.0,
+  };
 
   /// True when any demo row exists (Settings shows Remove instead of
   /// Add; Add is a no-op while demo data is present).
@@ -52,6 +68,20 @@ class DemoData {
   static Future<bool> addDemo({String currency = 'PKR'}) async {
     if (await hasDemo()) return false;
     final d = await YaadDb.db;
+
+    // Opening balances: snapshot the user's own first (once), then
+    // set the demo's so every balance looks lived-in.
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getString(_kOpeningsKey) == null) {
+      final current = await YaadDb.accounts();
+      await prefs.setString(
+          _kOpeningsKey,
+          jsonEncode(
+              {for (final a in current) a.id: a.openingBalance}));
+    }
+    for (final e in _demoOpenings.entries) {
+      await YaadDb.setOpeningBalance(e.key, e.value);
+    }
 
     YaadTransaction txn({
       required double amount,
@@ -345,5 +375,17 @@ class DemoData {
             SELECT personId FROM transactions WHERE personId IS NOT NULL)''');
     });
     await YaadDb.refreshCustomPurposeRegistry();
+    // Opening balances back to exactly what they were before Add.
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kOpeningsKey);
+    if (raw != null) {
+      final snapshot =
+          Map<String, Object?>.from(jsonDecode(raw) as Map);
+      for (final e in snapshot.entries) {
+        await YaadDb.setOpeningBalance(
+            e.key, (e.value as num?)?.toDouble() ?? 0);
+      }
+      await prefs.remove(_kOpeningsKey);
+    }
   }
 }

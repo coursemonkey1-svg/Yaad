@@ -75,7 +75,11 @@ class SettingsScreen extends StatelessWidget {
         return Scaffold(
           appBar: AppBar(title: Text(t.get('settings'))),
           body: ListView(
-            padding: const EdgeInsets.all(Gap.x2),
+            // Bottom padding clears the shell's floating Add button —
+            // the last rows (incl. Delete all) can always scroll
+            // fully above it.
+            padding: const EdgeInsets.fromLTRB(
+                Gap.x2, Gap.x2, Gap.x2, 96),
             children: [
               _section(t.get('youAndMoney')),
               _tile(
@@ -557,8 +561,10 @@ class SettingsScreen extends StatelessWidget {
       await appState.load();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(
-                'Restored ${summary.added} records (${summary.skipped} already present).')));
+            content: Text(Strings(appState.settings.language)
+                .get('restoreDone')
+                .replaceFirst('{added}', '${summary.added}')
+                .replaceFirst('{skipped}', '${summary.skipped}'))));
       }
     } catch (e) {
       if (context.mounted) {
@@ -569,19 +575,19 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<void> _wipe(BuildContext context) async {
+    final s = Strings(appState.settings.language);
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Delete everything?'),
-        content: const Text(
-            'This permanently erases all transactions, people, balances and names on this phone. Export a backup first if you want to keep anything.'),
+        title: Text(s.get('deleteAllConfirmTitle')),
+        content: Text(s.get('deleteAllConfirmBody')),
         actions: [
           TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel')),
+              child: Text(s.get('cancel'))),
           FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Delete everything')),
+              child: Text(s.get('deleteEverything'))),
         ],
       ),
     );
