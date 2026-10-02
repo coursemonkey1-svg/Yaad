@@ -175,10 +175,16 @@ void main() {
     // already exist and are matched by id — since v1.5 they are
     // UPDATED in place from the backup (rename + opening balance
     // survive a fresh-install restore), so they count as neither
-    // added nor skipped, and are never duplicated.
-    final accountCount = (data['accounts'] as List).length;
-    expect(accountCount, greaterThanOrEqualTo(3));
-    expect(summary.skipped, 0);
+    // added nor skipped, and are never duplicated. Any NON-seed
+    // account another test left in the shared test DB is already
+    // present, so it counts as skipped — derive the expectation
+    // from the backup instead of assuming an empty accounts table.
+    final accountRows = (data['accounts'] as List).cast<Map>();
+    const seedIds = {'meezan', 'savings', 'cash'};
+    final nonSeedCount =
+        accountRows.where((a) => !seedIds.contains(a['id'])).length;
+    expect(accountRows.length, greaterThanOrEqualTo(3));
+    expect(summary.skipped, nonSeedCount);
     expect(await YaadDb.txns(), hasLength(1));
     final people = await db.query('people');
     expect(people, hasLength(1));
@@ -186,7 +192,7 @@ void main() {
     // accounts are silently re-updated to the same values).
     final again = await BackupService().importJson(path);
     expect(again.added, 0);
-    expect(again.skipped, 2);
+    expect(again.skipped, 2 + nonSeedCount);
   });
 
   test('legacy backup that still contains audit imports fine', () async {
