@@ -154,6 +154,62 @@ void main() {
     final back = await YaadDb.txnById('v6-xfer');
     expect(back!.toAccountId, 'savings');
     expect(back.accountId, 'meezan');
+
+    // Heal the shared test DB: the partial v5 schema above lives at the
+    // shared test-DB path (every DB test file uses it) and lacks the
+    // people/lending/repayments/aliases/custom_purposes tables. Create
+    // them here so a leftover partial file can never break another
+    // file's tests with "no such table". (Deleting the file instead is
+    // NOT safe: tests keep writing through YaadDb's cached connection,
+    // and SQLite refuses writes once its file is moved.)
+    final dh = await YaadDb.db;
+    for (final ddl in [
+      '''CREATE TABLE IF NOT EXISTS people(
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        phone TEXT,
+        note TEXT NOT NULL,
+        createdAt INTEGER NOT NULL
+      )''',
+      '''CREATE TABLE IF NOT EXISTS lending(
+        id TEXT PRIMARY KEY,
+        personId TEXT NOT NULL,
+        type TEXT NOT NULL,
+        originalAmount REAL NOT NULL,
+        currency TEXT NOT NULL,
+        date INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        dueDate INTEGER,
+        note TEXT NOT NULL,
+        receiptPath TEXT,
+        isOwedToMe INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        createdAt INTEGER NOT NULL,
+        updatedAt INTEGER NOT NULL
+      )''',
+      '''CREATE TABLE IF NOT EXISTS repayments(
+        id TEXT PRIMARY KEY,
+        lendingId TEXT NOT NULL,
+        amount REAL NOT NULL,
+        date INTEGER NOT NULL,
+        note TEXT NOT NULL,
+        transactionId TEXT
+      )''',
+      '''CREATE TABLE IF NOT EXISTS aliases(
+        id TEXT PRIMARY KEY,
+        rawName TEXT NOT NULL UNIQUE,
+        alias TEXT NOT NULL,
+        usageCount INTEGER NOT NULL,
+        lastUsed INTEGER NOT NULL
+      )''',
+      '''CREATE TABLE IF NOT EXISTS custom_purposes(
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        createdAt INTEGER NOT NULL
+      )''',
+    ]) {
+      await dh.execute(ddl);
+    }
   });
 
   /// A savings move, the way the sheet records it: one transfer row.
