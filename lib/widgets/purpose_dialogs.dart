@@ -6,34 +6,50 @@ import '../l10n/strings.dart';
 /// the data layer ([YaadDb.deleteCustomPurpose]): transactions using a
 /// deleted purpose are reassigned to 'uncategorized' ("Other").
 
+/// Longest name a custom purpose may have. The picker tile is small;
+/// anything longer would be unreadable there (and in lists) anyway.
+const maxPurposeNameLength = 30;
+
 /// Asks for a new custom-purpose name. Returns the trimmed name, or null
-/// when cancelled.
+/// when cancelled. A blank name can neither be submitted nor confirmed —
+/// the Add button stays disabled until something is typed, instead of
+/// the dialog closing on an empty name the caller then silently drops.
 Future<String?> promptCustomPurposeName(BuildContext context, Strings s) {
   final ctrl = TextEditingController();
   return showDialog<String>(
     context: context,
-    builder: (ctx) => AlertDialog(
-      title: Text(s.get('newPurpose')),
-      content: TextField(
-        controller: ctrl,
-        autofocus: true,
-        textCapitalization: TextCapitalization.words,
-        decoration: InputDecoration(
-          labelText: s.get('purpose'),
-          hintText: s.get('purposeNameHint'),
-          border: const OutlineInputBorder(),
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setState) => AlertDialog(
+        title: Text(s.get('newPurpose')),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLength: maxPurposeNameLength,
+          textCapitalization: TextCapitalization.words,
+          decoration: InputDecoration(
+            labelText: s.get('purpose'),
+            hintText: s.get('purposeNameHint'),
+            border: const OutlineInputBorder(),
+            counterText: '',
+          ),
+          onChanged: (_) => setState(() {}),
+          onSubmitted: (v) {
+            final name = v.trim();
+            if (name.isNotEmpty) Navigator.pop(ctx, name);
+          },
         ),
-        onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(s.get('cancel'))),
+          TextButton(
+            onPressed: ctrl.text.trim().isEmpty
+                ? null
+                : () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: Text(s.get('add')),
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(s.get('cancel'))),
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-          child: Text(s.get('add')),
-        ),
-      ],
     ),
   );
 }

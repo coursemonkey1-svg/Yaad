@@ -6,7 +6,7 @@ import '../models/purposes.dart';
 ///
 /// [customIds] marks user-created purposes: long-pressing one calls
 /// [onDeleteCustom] (confirm + delete lives with the caller). The fixed
-/// list can never be deleted. [onAddCustom] appends a "＋ New" tile that
+/// list can never be deleted. [onAddCustom] appends a "+ New" tile that
 /// opens the create-purpose dialog.
 class PurposeGrid extends StatelessWidget {
   final List<Purpose> purposes;
@@ -17,7 +17,9 @@ class PurposeGrid extends StatelessWidget {
   final Set<String> customIds;
   final VoidCallback? onAddCustom;
 
-  /// Label for the "＋ New" tile (localized by the caller).
+  /// Label for the "New" tile (localized by the caller). The tile
+  /// already shows a "+" icon — the label must NOT start with one
+  /// (a doubled "+ ＋ New" reads as a typo).
   final String newTileLabel;
   final ValueChanged<String>? onDeleteCustom;
 
@@ -30,7 +32,7 @@ class PurposeGrid extends StatelessWidget {
     this.suggestionReason,
     this.customIds = const {},
     this.onAddCustom,
-    this.newTileLabel = '＋ New',
+    this.newTileLabel = 'New',
     this.onDeleteCustom,
   });
 
@@ -122,6 +124,10 @@ class PurposeGrid extends StatelessWidget {
                     Text(
                       p.label,
                       textAlign: TextAlign.center,
+                      // A long custom-purpose name ellipsizes inside
+                      // its tile instead of overflowing the grid cell.
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight:
@@ -142,7 +148,7 @@ class PurposeGrid extends StatelessWidget {
     );
   }
 
-  /// The "＋ New" tile. Label comes from the caller's strings.
+  /// The "+ New" tile (plus icon + label). Label comes from the caller.'s strings.
   Widget _newTile(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
@@ -161,6 +167,8 @@ class PurposeGrid extends StatelessWidget {
             Text(
               newTileLabel,
               textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,

@@ -22,6 +22,14 @@ class OcrResult {
   final String? transactionType; // normalized: ibft|raast|internal|wallet|bill|other
   final String? transactionTypeRaw; // as printed on the receipt
   final String? bank; // informational bank keyword, e.g. 'meezan'
+
+  /// A genuine description printed on the receipt (Description /
+  /// Narration / Remarks line), if any. This — and ONLY this — may
+  /// prefill the user's note. References, sender lines and rail
+  /// labels (1LINK IBFT …) are NOT a description: the reference lives
+  /// in [reference] (saved as the transaction's bank reference) and
+  /// the rest is bank furniture that must never pollute the note.
+  final String? description;
   final Map<String, double> confidence;
 
   const OcrResult({
@@ -38,6 +46,7 @@ class OcrResult {
     this.transactionType,
     this.transactionTypeRaw,
     this.bank,
+    this.description,
     this.confidence = const {},
   });
 
@@ -79,6 +88,7 @@ class OcrResult {
     String? transactionType,
     String? transactionTypeRaw,
     String? bank,
+    String? description,
     Map<String, double>? confidence,
   }) =>
       OcrResult(
@@ -95,6 +105,7 @@ class OcrResult {
         transactionType: transactionType ?? this.transactionType,
         transactionTypeRaw: transactionTypeRaw ?? this.transactionTypeRaw,
         bank: bank ?? this.bank,
+        description: description ?? this.description,
         confidence: confidence ?? this.confidence,
       );
 }
@@ -133,6 +144,7 @@ class OcrService {
       final reference = _extractReference(norm, amount, dateTime, conf);
       final txnType = _extractTxnType(norm, conf);
       final bank = _detectBank(norm, conf);
+      final description = _extractDescription(norm, conf);
       final recipient = parties.recipient;
       if (recipient != null && conf.containsKey('recipient')) {
         conf['merchant'] = conf['recipient']!;
@@ -140,7 +152,10 @@ class OcrService {
       return OcrResult(
         amount: amount,
         date: dateTime,
-        merchant: recipient, // ConfirmScreen compat
+        // ConfirmScreen compat: the counterparty's name — the
+        // recipient when there is one, else the sender (on a
+        // "received from" receipt the sender IS the person).
+        merchant: recipient ?? parties.sender,
         recipient: recipient,
         sender: parties.sender,
         recipientAccount: parties.recipientAccount,
@@ -149,6 +164,7 @@ class OcrService {
         transactionType: txnType?.type,
         transactionTypeRaw: txnType?.raw,
         bank: bank,
+        description: description,
         confidence: conf,
         rawText: t,
       );
@@ -550,10 +566,10 @@ class OcrService {
   // ----------------------------------------------------------------
 
   static final _recipientLabels = RegExp(
-      r'\b(to\s+account|beneficiary|receiver|paid\s+to|transfer\s+to|sent\s+to|recipient|credited\s+to|payee|merchant|to)\b\s*:?\s*',
+      r'\b(to\s+account|beneficiary(?:\s+name)?|receiver(?:\s+name)?|paid\s+to|transfer\s+to|sent\s+to|recipient(?:\s+name)?|credited\s+to|payee|merchant|to)\b\s*:?\s*',
       caseSensitive: false);
   static final _senderLabels = RegExp(
-      r'\b(from\s+account|debited\s+from|paid\s+by|remitter|sender|from)\b\s*:?\s*',
+      r'\b(from\s+account|debited\s+from|paid\s+by|remitter(?:\s+name)?|sender(?:\s+name)?|from)\b\s*:?\s*',
       caseSensitive: false);
 
   static const _nameDenylist = {
@@ -587,12 +603,16 @@ class OcrService {
       RegExp(r'\b\d[\d ]{0,8}[xX*]{2,}[\d ]*\d\b');
   static final _mobileAccount = RegExp(r'\b0\d{9,10}\b');
   static final _longDigits = RegExp(r'\b\d{10,20}\b');
-  // Stop a same-line name at date / reference fragments.
+  // Stop a same-line name at date / reference fragments. The last
+  // alternative cuts a TRAILING ref token ("… Ali Raza. TRX 44556677")
+  // only when the token after the ref word contains a digit, so a
+  // person actually named e.g. "Stan Lee" survives.
   static final _restStop = RegExp(
       r'\b(?:on|dated?|at)\b\s*(?=\d)|'
       r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|'
       r'\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b|'
-      r'\b(?:ref(?:erence)?(?:\s*no)?\.?|rrn|stan|tid|trx?\s*id|trace\s*(?:no|id)|approval\s+code)\b',
+      r'\b(?:ref(?:erence)?(?:\s*no)?\.?|rrn|stan|tid|trx?\s*id|trace\s*(?:no|id)|approval\s+code)\b|'
+      r'\b(?:trx|trn|rrn|stan|tid|ref(?:erence)?)\b[\s:]*[A-Za-z0-9-]*\d[A-Za-z0-9-]*\.?$',
       caseSensitive: false);
 
   static final _narrRecipient = RegExp(
@@ -631,8 +651,13 @@ class OcrService {
     s = s.replaceFirst(RegExp(r'\s*\b0?\d{9,}\b\s*$'), '');
     s = s.replaceFirst(
         RegExp(r'^(?:account|a/c)\s*:?\s*', caseSensitive: false), '');
+    // Leftover label fragments: "Beneficiary: Name: Ali Raza" (when
+    // only part of a compound label matched) or a bare "Title:" line
+    // prefix — the word is furniture, not part of the name.
+    s = s.replaceFirst(
+        RegExp(r'^(?:name|title)\s*:\s*', caseSensitive: false), '');
     s = s.replaceAll(RegExp(r'\s{2,}'), ' ').trim();
-    s = s.replaceAll(RegExp(r'[:;|]+$'), '').trim();
+    s = s.replaceAll(RegExp(r'[:;|.]+$'), '').trim();
     return s;
   }
 
@@ -643,13 +668,28 @@ class OcrService {
     try {
       final lines = t.split('\n');
       String? recipient, sender, recipientAccount, senderAccount;
+      // Lines already taken as one party's name. When the From and To
+      // blocks OCR as stacked labels ("From Account:" / "To Account:"
+      // / name / name), each label must claim a DIFFERENT line —
+      // without this the second label steals the first name (or, when
+      // the lines run out, the recipient comes up empty).
+      final claimed = <int>{};
 
-      for (var pass = 0; pass < 2; pass++) {
-        final labels = pass == 0 ? _recipientLabels : _senderLabels;
-        for (var i = 0; i < lines.length; i++) {
-          final line = lines[i];
-          final m = labels.firstMatch(line);
-          if (m == null) continue;
+      // Single pass in DOCUMENT ORDER. (The old two passes — every
+      // recipient label, then every sender label — mis-paired
+      // stacked blocks: "From:" / "To:" / name / name pairs
+      // positionally, first label with first value, so labels must
+      // be handled in the order they appear on the receipt.)
+      for (var i = 0; i < lines.length; i++) {
+        final line = lines[i];
+        final rm = _recipientLabels.firstMatch(line);
+        final sm = _senderLabels.firstMatch(line);
+        if (rm == null && sm == null) continue;
+        // A line matching both sets: the earlier match in the line
+        // decides which party the line labels.
+        final toRecipient =
+            rm != null && (sm == null || rm.start <= sm.start);
+        final m = (toRecipient ? rm : sm)!;
           String? name;
           String? account;
           final rest = line.substring(m.end).trim();
@@ -657,6 +697,23 @@ class OcrService {
             account = _extractAccount(rest);
             final cleaned = _cleanName(rest);
             if (_validName(cleaned)) name = cleaned;
+            // Account-first layout: "To Account: 0324xxx6500" with
+            // the NAME on the following line.
+            if (name == null && account != null) {
+              for (var j = i + 1;
+                  j < lines.length && j <= i + 2;
+                  j++) {
+                if (claimed.contains(j)) continue;
+                final nl = lines[j].trim();
+                if (nl.isEmpty || _looksLikeLabel(nl)) continue;
+                final cn = _cleanName(nl);
+                if (_validName(cn)) {
+                  name = cn;
+                  claimed.add(j);
+                  break;
+                }
+              }
+            }
             // Account may sit on a following line instead.
             if (account == null) {
               for (var j = i + 1;
@@ -669,25 +726,38 @@ class OcrService {
               }
             }
           } else {
-            // Label on line i with empty rest: name on i+1,
-            // account on i+2 or the name's own line.
+            // Label on line i with empty rest: the value is on a
+            // following line — name first (Meezan), or account first
+            // (some banks), possibly past another label line (stacked
+            // From/To blocks) or a junk line (bank logo text — the
+            // denylist rejects it as a name and the scan moves on).
             for (var j = i + 1;
-                j < lines.length && j <= i + 2;
+                j < lines.length && j <= i + 3;
                 j++) {
+              if (claimed.contains(j)) continue;
               final nl = lines[j].trim();
-              if (nl.isEmpty || _looksLikeLabel(nl)) continue;
-              account = _extractAccount(nl);
+              if (nl.isEmpty) continue;
+              if (_looksLikeLabel(nl)) {
+                // Another label before any value: keep scanning
+                // (stacked-label layout) — UNLESS we already claimed
+                // an account-only line, in which case the name after
+                // THIS label belongs to this label, not to us.
+                if (account != null) break;
+                continue;
+              }
+              account ??= _extractAccount(nl);
               final cleaned = _cleanName(nl);
               if (_validName(cleaned)) {
                 name = cleaned;
+                claimed.add(j);
                 break;
               }
-              // A line that is only an account number: keep looking
-              // for the name? No — masked account lines follow the
-              // name in Meezan's layout, so if this line is just an
-              // account, the name was on the previous (already seen)
-              // line; stop here.
-              if (account != null) break;
+              // A line that is only an account number: claim it and
+              // keep looking — the name may still follow it.
+              if (account != null && cleaned.isEmpty) {
+                claimed.add(j);
+                continue;
+              }
             }
             if (name != null && account == null) {
               for (var j = i + 1;
@@ -700,14 +770,13 @@ class OcrService {
               }
             }
           }
-          if (pass == 0) {
+          if (toRecipient) {
             recipient ??= name;
             recipientAccount ??= account;
           } else {
             sender ??= name;
             senderAccount ??= account;
           }
-        }
       }
 
       // Narrative SMS fallback (Easypaisa/JazzCash style), conf 0.6.
@@ -825,6 +894,36 @@ class OcrService {
           conf['reference'] = 0.55;
           return v;
         }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ----------------------------------------------------------------
+  // description — the ONLY receipt text that may prefill the user's
+  // note. Labeled lines only (Description / Narration / Remarks /
+  // Payment Details). Rail labels (1LINK IBFT …) and bare numbers are
+  // bank furniture, never a description.
+  // ----------------------------------------------------------------
+
+  static final _descLabel = RegExp(
+      r'\b(?:description|narration|remarks?|payment\s+details)\b\s*:?\s*(.{2,120})$',
+      caseSensitive: false);
+
+  String? _extractDescription(String t, Map<String, double> conf) {
+    try {
+      for (final line in t.split('\n')) {
+        final m = _descLabel.firstMatch(line);
+        if (m == null) continue;
+        final v = m.group(1)!.trim();
+        if (v.isEmpty) continue;
+        if (RegExp(r'^[\d\s,./-]+$').hasMatch(v)) continue;
+        final low = v.toLowerCase();
+        if (low.contains('1link') || low.contains('ibft')) continue;
+        conf['description'] = 0.8;
+        return v;
       }
       return null;
     } catch (_) {

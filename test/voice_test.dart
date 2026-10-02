@@ -173,6 +173,7 @@ void main() {
           name TEXT NOT NULL,
           phone TEXT,
           note TEXT NOT NULL,
+          isDemo INTEGER NOT NULL DEFAULT 0,
           createdAt INTEGER NOT NULL
         )''',
         '''CREATE TABLE IF NOT EXISTS lending(
@@ -188,6 +189,7 @@ void main() {
           receiptPath TEXT,
           isOwedToMe INTEGER NOT NULL,
           status TEXT NOT NULL,
+          isDemo INTEGER NOT NULL DEFAULT 0,
           createdAt INTEGER NOT NULL,
           updatedAt INTEGER NOT NULL
         )''',
@@ -206,8 +208,40 @@ void main() {
           usageCount INTEGER NOT NULL,
           lastUsed INTEGER NOT NULL
         )''',
+        // The v3 layout also downgrades `accounts` (no v8
+        // openingBalance / customName) - heal it too, or
+        // ensureDefaultAccounts' INSERT fails for every later test.
+        '''CREATE TABLE IF NOT EXISTS accounts(
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          customName TEXT,
+          createdAt INTEGER NOT NULL,
+          openingBalance REAL NOT NULL DEFAULT 0
+        )''',
       ]) {
         await d.execute(ddl);
+      }
+      try {
+        await d.execute(
+            'ALTER TABLE accounts ADD COLUMN openingBalance REAL NOT NULL DEFAULT 0');
+      } catch (_) {
+        // Column already present — nothing to heal.
+      }
+      try {
+        await d.execute('ALTER TABLE accounts ADD COLUMN customName TEXT');
+      } catch (_) {
+        // Column already present — nothing to heal.
+      }
+      // A people/lending table created by an OLDER heal (or an older
+      // app schema) may exist already but lack the v7 isDemo column —
+      // CREATE IF NOT EXISTS can't fix that, so add it when missing.
+      for (final t in ['people', 'lending']) {
+        try {
+          await d.execute(
+              'ALTER TABLE $t ADD COLUMN isDemo INTEGER NOT NULL DEFAULT 0');
+        } catch (_) {
+          // Column already present — nothing to heal.
+        }
       }
     });
 

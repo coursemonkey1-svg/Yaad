@@ -120,20 +120,16 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         _loadSuggestion(who);
       }
       if (r.date != null) _date = r.date!;
-      // Receipt context note: sender / reference / channel — only when
-      // the note is still empty, so a kept shared-text note is never
-      // overwritten.
-      if (_noteCtrl.text.isEmpty) {
-        final bits = <String>[
-          if (r.sender != null && r.sender!.isNotEmpty)
-            'From ${r.sender}',
-          if (r.reference != null && r.reference!.isNotEmpty)
-            'Ref ${r.reference}',
-          if (r.transactionTypeRaw != null &&
-              r.transactionTypeRaw!.isNotEmpty)
-            r.transactionTypeRaw!,
-        ];
-        if (bits.isNotEmpty) _noteCtrl.text = bits.join(' · ');
+      // Note prefill: ONLY a genuine description printed on the
+      // receipt. The reference goes to the bank-reference field (see
+      // _save) and the sender/rail labels ("1LINK IBFT") go nowhere —
+      // the note is the user's own "what was this for", and starting
+      // it with bank furniture ("Ref 534946 · 1LINK IBFT") pollutes
+      // the one field that is purely his.
+      if (_noteCtrl.text.isEmpty &&
+          r.description != null &&
+          r.description!.isNotEmpty) {
+        _noteCtrl.text = r.description!;
       }
       // Never-silent share: nothing parsed → keep the shared text as
       // the note so nothing is lost (§1).
@@ -175,7 +171,60 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     setState(() => _customs = customs);
   }
 
-  /// Creates a custom purpose from the "＋ New" tile and selects it.
+  /// Creates a money account from right here in the picker — the user
+  /// must never have to abandon a half-filled entry (or a scanned
+  /// receipt) to detour through Settings → Accounts. On success the
+  /// new account is selected for this entry; every other field is
+  /// untouched. Same rules as the Accounts screen: blank name →
+  /// 'emptyAccountName' message; duplicate (case-insensitive) →
+  /// YaadDb.insertAccount throws StateError, we show the same
+  /// 'accountExists' message AND select the existing account, since
+  /// that is the account the user means for this entry.
+  Future<void> _addAccount() async {
+    final s = Strings(appState.settings.language);
+    // The dialog owns its controllers (see _AddAccountDialog):
+    // disposing them here, the moment showDialog's future resolves,
+    // races the dialog's exit animation — its fields rebuild once
+    // more with dead controllers ("used after being disposed").
+    final result = await showDialog<({String name, double balance})>(
+      context: context,
+      builder: (_) => _AddAccountDialog(strings: s),
+    );
+    if (result == null || !mounted) return;
+    final name = result.name;
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.get('emptyAccountName'))));
+      return;
+    }
+    try {
+      final a = await YaadDb.insertAccount(name,
+          openingBalance: result.balance);
+      if (!mounted) return;
+      await _loadAccounts();
+      if (!mounted) return;
+      setState(() => _accountId = a.id);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(s
+              .get('accountAdded')
+              .replaceFirst('{name}', a.displayName(s)))));
+    } on StateError {
+      if (!mounted) return;
+      await _loadAccounts();
+      if (!mounted) return;
+      final needle = name.toLowerCase();
+      for (final a in _accounts) {
+        if (a.name.toLowerCase() == needle) {
+          setState(() => _accountId = a.id);
+          break;
+        }
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.get('accountExists'))));
+    }
+  }
+
+  /// Creates a custom purpose from the "+ New" tile and selects it.
   Future<void> _addCustomPurpose() async {
     final s = Strings(appState.settings.language);
     final name = await promptCustomPurposeName(context, s);
@@ -309,12 +358,6 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       }
       return;
     }
-    // Discard any earlier in-session recording before starting fresh.
-    await _deleteFile(_pendingAudioPath);
-    _pendingAudioPath = null;
-    _voiceText = '';
-    _partial = '';
-
     String path;
     try {
       final dir =
@@ -332,6 +375,18 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
             SnackBar(content: Text(s.get('micDenied'))));
       }
       return;
+    }
+
+    // The recorder is rolling — only NOW swap out any earlier
+    // in-session take and its transcript. Doing this before start
+    // meant a failed start destroyed a recording the user had
+    // already made in this session.
+    final oldPending = _pendingAudioPath;
+    _pendingAudioPath = path;
+    _voiceText = '';
+    _partial = '';
+    if (oldPending != null && oldPending != path) {
+      await _deleteFile(oldPending);
     }
 
     // Transcription runs in parallel with recording. When the speech
@@ -368,6 +423,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
 
     if (!mounted) {
       await _recorder.stop().catchError((_) => null);
+      await _deleteFile(path);
       return;
     }
     setState(() {
@@ -428,20 +484,23 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(Strings(appState.settings.language)
-                .get('voiceNoTranscript'))));
+                .get('voicePlayFailed'))));
       }
     }
   }
 
-  /// Removes the attached recording (and its transcript). On edit this
-  /// deletes the previously saved file too — nothing is orphaned.
+  /// Removes the attached recording (and its transcript) from this
+  /// form. An in-session recording's file is deleted right away; a
+  /// previously SAVED recording's file is only deleted when the edit
+  /// is saved (see [_save]) — deleting it here would orphan the file
+  /// path still stored on the transaction if the user backs out of
+  /// the editor without saving.
   Future<void> _discardVoice() async {
     if (_playing) {
       await _player?.stop();
       _playing = false;
     }
     await _deleteFile(_pendingAudioPath);
-    await _deleteFile(_savedAudioPath);
     if (mounted) {
       setState(() {
         _pendingAudioPath = null;
@@ -544,6 +603,9 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
 
   Future<void> _save({required bool needsReview}) async {
     if (_saving) return;
+    // Saving mid-recording would store a half-written audio file —
+    // stop first so the recording is complete on disk.
+    if (_recording) await _stopRecording();
     final amount =
         double.tryParse(_amountCtrl.text.replaceAll(',', '')) ?? 0;
     if (amount <= 0) {
@@ -551,7 +613,16 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
           SnackBar(content: Text(Strings(appState.settings.language).get('enterAmount'))));
       return;
     }
+    // A pasted or fat-fingered string of digits parses to an absurd
+    // (or infinite) double — never store it as a real transaction.
+    if (!amount.isFinite || amount >= 100000000) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(Strings(appState.settings.language).get('amountTooBig'))));
+      return;
+    }
     setState(() => _saving = true);
+    String? audioPath;
+    try {
     final merchant = _merchantCtrl.text.trim();
     final aliasText = _aliasCtrl.text.trim();
     String? aliasId;
@@ -563,11 +634,12 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     // Voice note: keep the new recording, drop the replaced one.
     // Transcript and typed note stay in their own separate fields.
     final e = widget.editing;
-    String? audioPath = _pendingAudioPath ?? _savedAudioPath;
-    if (e != null &&
-        _pendingAudioPath != null &&
-        e.audioPath != null &&
-        e.audioPath != _pendingAudioPath) {
+    audioPath = _pendingAudioPath ?? _savedAudioPath;
+    if (e != null && e.audioPath != null && e.audioPath != audioPath) {
+      // The saved recording was replaced or removed in this edit.
+      // Its file is deleted only now — at save time — so backing out
+      // of the editor never leaves the stored row pointing at a
+      // deleted file.
       await _deleteFile(e.audioPath);
     }
     if (audioPath != null && !await File(audioPath).exists()) {
@@ -632,6 +704,18 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         status: needsReview ? TxnStatus.needsReview : TxnStatus.confirmed,
       ));
     }
+    } catch (_) {
+      // A failed save must never wedge the screen on the spinner with
+      // both buttons dead — re-enable and tell the user, keeping
+      // everything they typed.
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(Strings(appState.settings.language).get('saveFailed'))));
+      }
+      return;
+    }
     // The recording is now saved with the transaction — it is no longer
     // "pending", so dispose() must not delete it as unsaved junk. (Bug:
     // without this, closing the screen deleted the just-saved recording
@@ -639,7 +723,23 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     _savedAudioPath = audioPath;
     _pendingAudioPath = null;
     appState.refresh();
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) {
+      // If the saved date falls outside the period Home is currently
+      // showing, Home's figures will not move and the save looks lost
+      // (user-reported: a September entry "did nothing" to October's
+      // totals). Say where it went — the month of the saved date.
+      // Saves inside the displayed period get no extra message.
+      final (fromMs, toMs) = appState.periodRangeMs();
+      final dateMs = _date.millisecondsSinceEpoch;
+      if (dateMs < fromMs || dateMs > toMs) {
+        final s = Strings(appState.settings.language);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(s
+                .get('savedInMonth')
+                .replaceFirst('{month}', s.monthFull(_date.month)))));
+      }
+      Navigator.of(context).pop();
+    }
   }
 
   Future<void> _pickDate() async {
@@ -669,13 +769,23 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       appBar:
           AppBar(title: Text(isEdit ? s.get('edit') : s.get('capture'))),
       body: ListView(
-        padding: const EdgeInsets.all(Gap.x2),
+        // Extra bottom clearance: the last actions (Save / Save
+        // without note) are in-flow at the end of this list, and at
+        // max scroll they must sit well clear of the screen's bottom
+        // edge (and the keyboard, which shrinks this viewport) —
+        // never kissing the edge the way Home's last card sat under
+        // the floating Add button.
+        padding: const EdgeInsets.fromLTRB(Gap.x2, Gap.x2, Gap.x2, Gap.x4),
         children: [
           if (r?.imagePath != null)
             ClipRRect(
               borderRadius: BorderRadius.circular(Radius.tile),
               child: Image.file(File(r!.imagePath!),
-                  height: 160, fit: BoxFit.cover),
+                  height: 160,
+                  fit: BoxFit.cover,
+                  // The file can be gone (share-sheet temp cleaned up):
+                  // collapse quietly instead of a broken-image box.
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink()),
             ),
           if (r?.imagePath != null) const SizedBox(height: Gap.x1 + 4),
           // Amount — big, first, numeric keyboard.
@@ -728,6 +838,13 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
                   onSelected: (_) =>
                       setState(() => _accountId = a.id),
                 ),
+              // Create an account without leaving this entry.
+              ActionChip(
+                key: const Key('addAccountChip'),
+                avatar: const Icon(Icons.add, size: 18),
+                label: Text(s.get('addAccount')),
+                onPressed: _addAccount,
+              ),
             ],
           ),
           const SizedBox(height: Gap.x1 + 4),
@@ -797,7 +914,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
             suggestionReason: _suggestionReason,
             customIds: _customIds,
             onAddCustom: _isSpend ? _addCustomPurpose : null,
-            newTileLabel: '＋ ${s.get('newPurpose')}',
+            newTileLabel: s.get('newPurpose'),
             onDeleteCustom: _deleteCustomPurpose,
           ),
           // Discoverability: long-press to delete is otherwise invisible.
@@ -875,6 +992,86 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// The "+ New account" name + opening-balance dialog. Owns its text
+/// controllers and disposes them from State.dispose — i.e. only once
+/// the dialog route (including its exit animation) is fully gone.
+/// Pops with the trimmed name and the parsed balance; garbage in the
+/// balance field (unparseable / negative / absurd) parses as 0,
+/// exactly like leaving it blank.
+class _AddAccountDialog extends StatefulWidget {
+  final Strings strings;
+  const _AddAccountDialog({required this.strings});
+
+  @override
+  State<_AddAccountDialog> createState() => _AddAccountDialogState();
+}
+
+class _AddAccountDialogState extends State<_AddAccountDialog> {
+  final _nameCtrl = TextEditingController();
+  final _balCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _balCtrl.dispose();
+    super.dispose();
+  }
+
+  double get _balance {
+    final v = double.tryParse(_balCtrl.text.replaceAll(',', '')) ?? 0;
+    return (v.isFinite && v > 0 && v < 1000000000000) ? v : 0;
+  }
+
+  void _submit() => Navigator.of(context)
+      .pop((name: _nameCtrl.text.trim(), balance: _balance));
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.strings;
+    return AlertDialog(
+      title: Text(s.get('addAccount')),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _nameCtrl,
+            autofocus: true,
+            maxLength: 40,
+            textCapitalization: TextCapitalization.words,
+            decoration: InputDecoration(
+              labelText: s.get('account'),
+              hintText: s.get('accountNameHint'),
+              border: const OutlineInputBorder(),
+            ),
+            onSubmitted: (_) => _submit(),
+          ),
+          const SizedBox(height: Gap.x1 + 4),
+          TextField(
+            controller: _balCtrl,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
+            ],
+            decoration: InputDecoration(
+              labelText: s.get('openingBalance'),
+              prefixText: '${appState.settings.currency} ',
+              border: const OutlineInputBorder(),
+            ),
+            onSubmitted: (_) => _submit(),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(s.get('cancel'))),
+        FilledButton(onPressed: _submit, child: Text(s.get('save'))),
+      ],
     );
   }
 }

@@ -51,4 +51,20 @@ void main() {
     )));
     expect(find.textContaining('Suggested:'), findsNothing);
   });
+
+  testWidgets('new tile shows ONE plus: the icon, never a plus in the label',
+      (tester) async {
+    await tester.pumpWidget(wrap(PurposeGrid(
+      purposes: kPurposes,
+      selected: 'uncategorized',
+      onSelect: (_) {},
+      onAddCustom: () {},
+      newTileLabel: 'New purpose',
+    )));
+    // The tile's plus is its icon; the label must not repeat it
+    // (the doubled "+ ＋ New purpose" was the user-reported nit).
+    expect(find.byIcon(Icons.add), findsOneWidget);
+    expect(find.text('New purpose'), findsOneWidget);
+    expect(find.textContaining('＋'), findsNothing);
+  });
 }
