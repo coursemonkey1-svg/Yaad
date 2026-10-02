@@ -63,12 +63,15 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
   double? _amountOrNull() => _amount > 0 ? _amount : null;
 
   Future<void> _scanReceipt() async {
-    Navigator.of(context).pop();
+    // Grab the navigator BEFORE popping: this sheet unmounts on pop, so its
+    // own context (and `mounted`) must not be used after the async picker.
+    // Using them caused the scan to silently die after every image pick.
+    final navigator = Navigator.of(context);
+    navigator.pop();
     final res = await FilePicker.platform
         .pickFiles(type: FileType.image, allowMultiple: false);
     if (res == null || res.files.single.path == null) return;
-    if (!mounted) return;
-    await captureImage(context, res.files.single.path!);
+    await captureImage(navigator.context, res.files.single.path!);
   }
 
   @override
