@@ -60,7 +60,7 @@ class ReviewScreen extends StatelessWidget {
                     itemCount: items.length,
                     itemBuilder: (_, i) => TxnRow(
                       txn: items[i],
-                      onTap: null, // default: open editor
+                      onTap: null, // default: open detail view
                     ),
                   ),
                 ),
