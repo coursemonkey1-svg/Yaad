@@ -4,13 +4,17 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/db.dart';
 import '../l10n/strings.dart';
+import '../models/account.dart';
+import '../models/settings.dart';
 import '../models/transaction.dart';
 import '../models/person.dart';
 import '../models/lending.dart';
 import '../models/alias.dart';
+import 'app_state.dart';
 
 /// Backup & export. Everything is a file the user owns —
 /// no account, no cloud upload. Free forever.
@@ -30,6 +34,7 @@ class BackupService {
       'lending',
       'repayments',
       'aliases',
+      'accounts',
     ]) {
       data[t] = await db.query(t);
     }
@@ -136,10 +141,37 @@ class BackupService {
 
     await restore('people', (m) => Person.fromMap(m).toMap());
     await restore('aliases', (m) => MerchantAlias.fromMap(m).toMap());
-    await restore('transactions', (m) => YaadTransaction.fromMap(m).toMap());
+    // Accounts match by id — the seeded Meezan / Savings / Cash rows
+    // already exist, so they are skipped, never duplicated.
+    await restore('accounts', (m) => Account.fromMap(m).toMap());
+    // Pre-accounts backups (v1.3 and older) have no accountId on their
+    // rows — those land on the default account, exactly like the
+    // v4→v5 migration does for on-device rows.
+    final defaultAccountId = await _defaultAccountId();
+    await restore('transactions', (m) {
+      final map = YaadTransaction.fromMap(m).toMap();
+      map['accountId'] ??= defaultAccountId;
+      return map;
+    });
     await restore('lending', (m) => LendingRecord.fromMap(m).toMap());
     await restore('repayments', (m) => Repayment.fromMap(m).toMap());
     return ImportSummary(added: added, skipped: skipped);
+  }
+
+  /// The default account id from settings. Falls back to the Meezan
+  /// seed when settings were never saved (e.g. a fresh install
+  /// restoring an old backup).
+  Future<String> _defaultAccountId() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(AppState.prefsKey);
+      if (raw != null) {
+        return AppSettings.fromMap(
+                Map<String, Object?>.from(jsonDecode(raw)))
+            .defaultAccountId;
+      }
+    } catch (_) {}
+    return Account.seedMeezan;
   }
 
   Future<void> shareFile(String path, {String subject = 'Yaad export'}) async {

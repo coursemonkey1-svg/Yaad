@@ -13,6 +13,7 @@ import '../services/pro.dart';
 import '../services/sms_capture.dart';
 import '../theme.dart';
 import '../widgets/statement_import_wait.dart';
+import 'accounts.dart';
 import 'aliases.dart';
 import 'import_preview.dart';
 import 'pro.dart';
@@ -210,6 +211,14 @@ class SettingsScreen extends StatelessWidget {
                 onTap: () => _importStatement(context),
               ),
               _section(t.get('yourData')),
+              ListTile(
+                leading: const Icon(Icons.account_balance_wallet_outlined),
+                title: Text(t.get('myAccounts')),
+                subtitle: Text(t.get('myAccountsSub')),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const AccountsScreen())),
+              ),
               ListTile(
                 leading: const Icon(Icons.backup_outlined),
                 title: Text(t.get('backup')),

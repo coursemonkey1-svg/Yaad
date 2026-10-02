@@ -14,7 +14,12 @@ class AppState extends ChangeNotifier {
 
   bool get ready => _ready;
 
-  static const _key = 'yaad_settings_v1';
+  /// SharedPreferences key for the settings JSON. Public so services
+  /// that can't import the app shell (e.g. backup) can read the
+  /// default account id without a main.dart import cycle.
+  static const prefsKey = 'yaad_settings_v1';
+
+  static const _key = prefsKey;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();

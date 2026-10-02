@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/db.dart';
 import '../l10n/strings.dart';
 import '../main.dart';
+import '../models/account.dart';
 import '../models/lending.dart';
 import '../models/transaction.dart';
 import '../models/purposes.dart';
@@ -362,11 +363,12 @@ class TxnRow extends StatelessWidget {
   }
 }
 
-/// Friendly-name lookups for a row (merchant alias + person).
+/// Friendly-name lookups for a row (merchant alias + person + account).
 class _TxnRowNames {
   final String? alias;
   final String? personName;
-  const _TxnRowNames(this.alias, this.personName);
+  final String accountLabel;
+  const _TxnRowNames(this.alias, this.personName, this.accountLabel);
 }
 
 class _TxnRow extends StatelessWidget {
@@ -376,15 +378,20 @@ class _TxnRow extends StatelessWidget {
   const _TxnRow(
       {required this.txn, this.onTap, this.compact = false});
 
-  Future<_TxnRowNames> _loadNames() async {
+  Future<_TxnRowNames> _loadNames(Strings s) async {
     final alias = await YaadDb.aliasFor(txn.rawMerchant);
     String? personName;
     if (txn.personId != null) {
       personName = (await YaadDb.personById(txn.personId!))?.name;
     }
+    // NULL accountId (pre-v1.4 rows or raw inserts) reads as the
+    // default account — a row is never shown without an account tag.
+    final accountId = txn.accountId ?? Account.seedMeezan;
+    final account = await YaadDb.accountById(accountId);
     return _TxnRowNames(
       (alias != null && alias.alias.isNotEmpty) ? alias.alias : null,
       (personName != null && personName.isNotEmpty) ? personName : null,
+      account?.displayName(s) ?? accountId,
     );
   }
 
@@ -394,7 +401,7 @@ class _TxnRow extends StatelessWidget {
     final s = Strings(appState.settings.language);
     final tint = _colorFor(context, txn.kind);
     return FutureBuilder<_TxnRowNames>(
-      future: _loadNames(),
+      future: _loadNames(s),
       builder: (context, snap) {
         final names = snap.data;
         final title = names?.alias ??
@@ -433,7 +440,7 @@ class _TxnRow extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: compact
-                        ? _compactBody(context, s, title)
+                        ? _compactBody(context, s, title, names)
                         : _detailedBody(context, s, title, names, tint),
                   ),
                   const SizedBox(width: 8),
@@ -447,13 +454,25 @@ class _TxnRow extends StatelessWidget {
     );
   }
 
-  /// Glanceable single row: title + amount only.
-  Widget _compactBody(BuildContext context, Strings s, String title) {
-    return Text(title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-            fontWeight: FontWeight.w600, fontSize: 15, height: 1.3));
+  /// Glanceable single row: title + account tag + amount.
+  Widget _compactBody(BuildContext context, Strings s, String title,
+      _TxnRowNames? names) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+                fontWeight: FontWeight.w600, fontSize: 15, height: 1.3)),
+        Text(names?.accountLabel ?? '',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 11.5, color: cs.onSurfaceVariant)),
+      ],
+    );
   }
 
   /// The full card: purpose, date/time, note snippet, person, source badge.
@@ -488,6 +507,8 @@ class _TxnRow extends StatelessWidget {
             _chip(context, kindLabel(txn.kind), tint),
             _chip(context, purposeLabel(txn.purpose),
                 cs.onSurfaceVariant),
+            _chip(context, names?.accountLabel ?? '', cs.tertiary,
+                icon: Icons.account_balance_wallet_outlined),
             if (needsReview)
               _chip(context, s.get('needsReview'), cs.error,
                   icon: Icons.visibility_outlined),

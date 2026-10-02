@@ -21,6 +21,7 @@ class AppSettings {
   final bool appLockGrandfathered; // v1.0 users keep free app lock
   final String accentTheme; // "teal" free; others are Pro
   final String activityView; // "detailed" | "compact" — Activity list density
+  final String defaultAccountId; // id of the default Account ("meezan")
 
   /// Valid values for [activityView].
   static const String viewDetailed = 'detailed';
@@ -47,6 +48,7 @@ class AppSettings {
     this.appLockGrandfathered = false,
     this.accentTheme = 'teal',
     this.activityView = viewDetailed,
+    this.defaultAccountId = 'meezan',
   });
 
   AppSettings copyWith({
@@ -70,6 +72,7 @@ class AppSettings {
     bool? appLockGrandfathered,
     String? accentTheme,
     String? activityView,
+    String? defaultAccountId,
   }) =>
       AppSettings(
         currency: currency ?? this.currency,
@@ -93,6 +96,7 @@ class AppSettings {
             appLockGrandfathered ?? this.appLockGrandfathered,
         accentTheme: accentTheme ?? this.accentTheme,
         activityView: activityView ?? this.activityView,
+        defaultAccountId: defaultAccountId ?? this.defaultAccountId,
       );
 
   Map<String, Object?> toMap() => {
@@ -116,6 +120,7 @@ class AppSettings {
         'appLockGrandfathered': appLockGrandfathered,
         'accentTheme': accentTheme,
         'activityView': activityView,
+        'defaultAccountId': defaultAccountId,
       };
 
   factory AppSettings.fromMap(Map<String, Object?> m) {
@@ -142,6 +147,7 @@ class AppSettings {
         accentTheme: m['accentTheme'] as String? ?? 'teal',
         activityView:
             (view == viewCompact) ? viewCompact : viewDetailed,
+        defaultAccountId: m['defaultAccountId'] as String? ?? 'meezan',
       );
   }
 }
