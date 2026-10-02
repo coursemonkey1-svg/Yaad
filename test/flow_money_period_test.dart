@@ -101,7 +101,10 @@ void main() {
             kind: TxnKind.spend,
             rawMerchant: 'SEEDED',
           ));
-      await at(tz.TZDateTime(loc, n.year, n.month, n.day, 12), 100);
+      // "Today" rows are seeded at 00:00, never noon: Yaad excludes
+      // future-dated rows by design, so a noon seed is in the future
+      // every morning and the period sums lose the row.
+      await at(tz.TZDateTime(loc, n.year, n.month, n.day, 0), 100);
       await at(tz.TZDateTime(loc, n.year, n.month, 1, 12), 10);
       final lastMonth = tz.TZDateTime(loc, n.year, n.month - 1, 15, 12);
       await at(lastMonth, 200);
@@ -250,7 +253,7 @@ void main() {
       await YaadDb.insertTxn(YaadTransaction(
         amount: 100,
         dateTime: DateTime.fromMillisecondsSinceEpoch(
-            tz.TZDateTime(loc, n.year, n.month, n.day, 12)
+            tz.TZDateTime(loc, n.year, n.month, n.day, 0)
                 .millisecondsSinceEpoch),
         kind: TxnKind.spend,
         rawMerchant: 'NOW SHOP',

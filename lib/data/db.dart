@@ -957,13 +957,24 @@ class YaadDb {
   }
 
   /// Transaction counts per account id (for the manage screen).
+  /// A transfer touches TWO accounts — it leaves one and arrives in
+  /// the other — so it counts for both legs (before build-26 only the
+  /// from-leg was counted, and a savings account that had only ever
+  /// RECEIVED transfers showed "0 transactions"). Every other row
+  /// counts once, for its own account. A NULL accountId keeps the
+  /// legacy '' key.
   static Future<Map<String, int>> txnCountsByAccount() async {
     final d = await db;
-    final rows = await d.rawQuery(
-        'SELECT accountId, COUNT(*) n FROM transactions GROUP BY accountId');
+    final rows = await d.rawQuery('''
+      SELECT leg, COUNT(*) n FROM (
+        SELECT COALESCE(accountId, '') leg FROM transactions
+        UNION ALL
+        SELECT toAccountId leg FROM transactions
+          WHERE toAccountId IS NOT NULL
+      ) GROUP BY leg''');
     return {
       for (final r in rows)
-        (r['accountId'] as String? ?? ''): (r['n'] as int?) ?? 0
+        (r['leg'] as String? ?? ''): (r['n'] as int?) ?? 0
     };
   }
 

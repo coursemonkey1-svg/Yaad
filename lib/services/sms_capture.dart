@@ -8,6 +8,19 @@ import '../models/transaction.dart';
 import 'capture_notify.dart';
 import 'sms_parse.dart';
 
+/// Result of [CaptureService.completePendingNotifOptIn].
+enum NotifOptInOutcome {
+  /// No opt-in was pending; nothing was done.
+  none,
+
+  /// A pending opt-in found its OS grant and capture is now on.
+  enabled,
+
+  /// A pending opt-in was checked and the OS grant is still missing;
+  /// the pending flag was cleared and nothing was enabled.
+  missing,
+}
+
 /// Bridges the native SMS/notification queues into Yaad (§6).
 /// Everything is on-device: the native side only queues when the user
 /// opted in, and Dart parses + imports on next app open.
@@ -24,17 +37,67 @@ class CaptureService {
     try {
       return await _ch.invokeMethod<bool>('isNotificationAccessGranted') ??
           false;
-    } on PlatformException {
+    } catch (_) {
+      // PlatformException, or MissingPluginException where the channel
+      // isn't registered: either way access is not verifiably granted.
       return false;
     }
   }
 
-  static Future<void> openNotificationSettings() async {
+  /// Opens the system notification-access settings page. The native
+  /// side reports whether the intent actually fired; false means the
+  /// user must be told how to get there manually — never fail silent
+  /// (a dead "Open settings" button reads as a broken app).
+  static Future<bool> openNotificationSettings() async {
     try {
-      await _ch.invokeMethod('openNotificationSettings');
-    } on PlatformException {
-      // System settings unavailable: the settings screen explains.
+      return await _ch.invokeMethod<bool>('openNotificationSettings') ??
+          false;
+    } catch (_) {
+      return false;
     }
+  }
+
+  /// Completes a notification-capture opt-in the user started before
+  /// leaving for system settings ([AppSettings.notifOptInPending]).
+  ///
+  /// The pending flag is persisted settings state, not widget state,
+  /// because the trip to system settings can tear the widget tree down:
+  /// the app-lock Gate replaces the whole shell with the lock screen on
+  /// re-lock, disposing the Settings state that used to hold this in a
+  /// field — the "finish the opt-in when the user returns" step was
+  /// thrown away with it and the toggle could never turn on.
+  ///
+  /// Outcomes:
+  /// - not pending → [NotifOptInOutcome.none], nothing happens;
+  /// - pending + access granted → capture turns fully on (settings
+  ///   flag, native queueing flag, pending cleared, queue drained):
+  ///   [NotifOptInOutcome.enabled];
+  /// - pending + access still missing → the return-check is over, so
+  ///   pending is cleared and nothing is enabled:
+  ///   [NotifOptInOutcome.missing]. The Settings screen shows the
+  ///   'notifAccessNeeded' nudge for this outcome.
+  ///
+  /// Idempotent: safe to call from shell resume, Gate unlock, and the
+  /// Settings screen's own resume handler in any order — the first
+  /// call resolves the flag, later calls see [NotifOptInOutcome.none].
+  static Future<NotifOptInOutcome> completePendingNotifOptIn({
+    Future<bool> Function()? notificationAccessGranted,
+  }) async {
+    if (!appState.settings.notifOptInPending) {
+      return NotifOptInOutcome.none;
+    }
+    final granted = await (notificationAccessGranted?.call() ??
+        _notificationGranted());
+    if (!granted) {
+      await appState
+          .update(appState.settings.copyWith(notifOptInPending: false));
+      return NotifOptInOutcome.missing;
+    }
+    await appState.update(appState.settings.copyWith(
+        notificationCapture: true, notifOptInPending: false));
+    await _setQuietly(() => setNotificationEnabled(true));
+    await drainAndImport();
+    return NotifOptInOutcome.enabled;
   }
 
   /// Makes the two capture toggles tell the truth.
@@ -54,6 +117,11 @@ class CaptureService {
   ///   THIS phone were never set;
   /// - conversely the OS grant can be present while the native flag
   ///   was never (re-)asserted → switch ON, nothing queues.
+  ///
+  /// While a notification opt-in is mid-trip to system settings
+  /// ([AppSettings.notifOptInPending]) the notification channel is
+  /// skipped entirely — [completePendingNotifOptIn] owns it until the
+  /// user returns.
   ///
   /// Reconciliation (run from the main shell before every drain, i.e.
   /// on app start and every resume): for each channel whose settings
@@ -82,7 +150,13 @@ class CaptureService {
       await _setQuietly(() => setSmsEnabled(false));
     }
 
-    if (!s.notificationCapture) {
+    if (s.notifOptInPending) {
+      // An opt-in trip to system settings is in progress. Leave the
+      // notification channel completely alone: reconciling it now —
+      // before completePendingNotifOptIn runs on return — could
+      // clear/re-assert native flags mid-flow and fight the
+      // completion pass.
+    } else if (!s.notificationCapture) {
       await _setQuietly(() => setNotificationEnabled(false));
     } else if (await (notificationAccessGranted?.call() ??
         _notificationGranted())) {

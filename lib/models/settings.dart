@@ -24,6 +24,10 @@ class AppSettings {
   final String period; // shared viewing period — see AppState.periodRangeMs
   final String defaultAccountId; // id of the default Account ("meezan")
   final bool showSavings; // Savings section visible on Home (default on)
+  final bool notifOptInPending; // user is mid-trip to system settings to
+  // grant notification access; resume/unlock passes complete the opt-in.
+  // Transient flow state, persisted because the trip crosses process /
+  // widget-tree death (app-lock Gate teardown). Never a user preference.
 
   /// Valid values for [activityView].
   static const String viewDetailed = 'detailed';
@@ -76,6 +80,7 @@ class AppSettings {
     this.period = periodThisMonth,
     this.defaultAccountId = 'meezan',
     this.showSavings = true,
+    this.notifOptInPending = false,
   });
 
   AppSettings copyWith({
@@ -102,6 +107,7 @@ class AppSettings {
     String? period,
     String? defaultAccountId,
     bool? showSavings,
+    bool? notifOptInPending,
   }) =>
       AppSettings(
         currency: currency ?? this.currency,
@@ -128,6 +134,7 @@ class AppSettings {
         period: period ?? this.period,
         defaultAccountId: defaultAccountId ?? this.defaultAccountId,
         showSavings: showSavings ?? this.showSavings,
+        notifOptInPending: notifOptInPending ?? this.notifOptInPending,
       );
 
   Map<String, Object?> toMap() => {
@@ -154,6 +161,7 @@ class AppSettings {
         'period': period,
         'defaultAccountId': defaultAccountId,
         'showSavings': showSavings,
+        'notifOptInPending': notifOptInPending,
       };
 
   factory AppSettings.fromMap(Map<String, Object?> m) {
@@ -184,6 +192,8 @@ class AppSettings {
         period: isPeriodValue(periodRaw) ? periodRaw : periodThisMonth,
         defaultAccountId: m['defaultAccountId'] as String? ?? 'meezan',
         showSavings: m['showSavings'] as bool? ?? true,
+        // Absent in settings/backups written before this field existed.
+        notifOptInPending: m['notifOptInPending'] as bool? ?? false,
       );
   }
 }
