@@ -131,7 +131,10 @@ void main() {
       expect(find.byKey(const Key('txnBankRef')), findsNothing);
       // Kind + purpose + account + source chips still render.
       expect(find.text('Received'), findsAtLeastNWidgets(1));
-      expect(find.text('Salary'), findsOneWidget);
+      // No merchant on this txn: the hero title falls back to the
+      // PURPOSE name (never the kind word), so 'Salary' shows twice
+      // — once as the title, once as the purpose chip.
+      expect(find.text('Salary'), findsNWidgets(2));
       expect(find.text('Cash'), findsOneWidget);
       expect(find.text('Manual'), findsOneWidget);
     });
@@ -180,7 +183,9 @@ void main() {
           names: const TxnDisplayNames(accountLabel: 'میزان'));
 
       expect(find.text('خرچ'), findsAtLeastNWidgets(1)); // kind
-      expect(find.text('گروسری'), findsOneWidget); // purpose
+      // Nameless txn: purpose is both the hero title fallback and
+      // the purpose chip.
+      expect(find.text('گروسری'), findsNWidgets(2)); // purpose
       expect(find.text('میزان'), findsOneWidget); // account tag
       expect(find.text('SMS الرٹ'), findsOneWidget); // source badge
       expect(find.text('ترمیم کریں'), findsOneWidget); // Edit action

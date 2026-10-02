@@ -223,4 +223,139 @@ STAN: 53494l
       expect(c.reference, r.reference);
     });
   });
+
+  group('v1.5 — IBFT transfer receipts: names + note separation', () {
+    // The user's live 1LINK IBFT scan (build-24): the recipient name
+    // printed on the receipt came up EMPTY in the form, and the note
+    // arrived pre-polluted with "Ref 534946 · 1LINK IBFT". These
+    // fixtures pin the separation: reference → reference field,
+    // printed name → recipient/merchant, rail label → nowhere in the
+    // note, description (genuine, labeled) → description field only.
+    test('reference and rail label never become a description', () {
+      final r = ocr.parseText(meezanReceipt);
+      expect(r.reference, '534946');
+      expect(r.transactionTypeRaw, '1LINK IBFT');
+      // No Description/Narration line on this receipt → the note
+      // prefill source stays empty.
+      expect(r.description, isNull);
+    });
+
+    test('a genuine labeled description is extracted', () {
+      const text = '''
+Transaction Successful
+PKR 25,000
+To Account:
+Fatima Khan
+0324xxx6500
+Description: Monthly rent for October
+Reference Number (STAN): 777001
+Transaction Type: 1LINK IBFT
+''';
+      final r = ocr.parseText(text);
+      expect(r.description, 'Monthly rent for October');
+      expect(r.recipient, 'Fatima Khan');
+      expect(r.reference, '777001');
+    });
+
+    test('a rail label in the description field is rejected as junk', () {
+      const text = '''
+PKR 1,000
+Description: 1LINK IBFT Transfer
+To: Corner Store
+''';
+      final r = ocr.parseText(text);
+      expect(r.description, isNull);
+    });
+
+    test('stacked labels pair positionally (From name, then To name)',
+        () {
+      // ML Kit block order variant: both labels first, then both
+      // names, then both accounts.
+      const text = '''
+Transaction Successful
+PKR 8,000
+Sep 28, 2026 | 5:07 PM
+From Account:
+To Account:
+Ali Raza
+Fatima Khan
+4501xxx2047
+0324xxx6500
+Reference Number (STAN): 534946
+Transaction Type: 1LINK IBFT
+''';
+      final r = ocr.parseText(text);
+      expect(r.sender, 'Ali Raza');
+      expect(r.recipient, 'Fatima Khan');
+      expect(r.merchant, 'Fatima Khan');
+      expect(r.reference, '534946');
+    });
+
+    test('account-first layout: name on the line after the account', () {
+      const text = '''
+Transaction Successful
+PKR 3,500
+To Account: 0324xxx6500
+Fatima Khan
+From Account: 4501xxx2047
+Ali Raza
+''';
+      final r = ocr.parseText(text);
+      expect(r.recipient, 'Fatima Khan');
+      expect(r.recipientAccount, '0324xxx6500');
+      expect(r.sender, 'Ali Raza');
+      expect(r.senderAccount, '4501xxx2047');
+    });
+
+    test('Beneficiary Name: on one line extracts the bare name', () {
+      const text = '''
+Transfer Successful
+Amount: PKR 2,000
+Beneficiary Name: Fatima Khan
+Bank: Meezan
+''';
+      final r = ocr.parseText(text);
+      expect(r.recipient, 'Fatima Khan');
+      expect(r.merchant, 'Fatima Khan');
+    });
+
+    test('Receiver Name with a bank-logo junk line still finds the name',
+        () {
+      const text = '''
+Transfer Successful
+PKR 1,500
+Receiver Name:
+JazzCash
+Fatima Khan
+''';
+      final r = ocr.parseText(text);
+      expect(r.recipient, 'Fatima Khan');
+    });
+
+    test('sender with no printed name does not steal the recipient name',
+        () {
+      const text = '''
+Transaction Successful
+PKR 8,000
+From Account:
+4501xxx2047
+To Account:
+Fatima Khan
+0324xxx6500
+''';
+      final r = ocr.parseText(text);
+      expect(r.sender, isNull);
+      expect(r.senderAccount, '4501xxx2047');
+      expect(r.recipient, 'Fatima Khan');
+      expect(r.recipientAccount, '0324xxx6500');
+    });
+
+    test('received-from receipt: sender lands in the merchant field', () {
+      const text =
+          'You have received Rs 3,200.00 in your Easypaisa account from Ali Raza. TRX 44556677.';
+      final r = ocr.parseText(text);
+      expect(r.sender, 'Ali Raza');
+      expect(r.merchant, 'Ali Raza');
+    });
+  });
 }

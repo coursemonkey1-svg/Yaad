@@ -62,7 +62,12 @@ String _detectBank(String sender, String body) {
 double? _parseAmount(String text) {
   final m = _amountRe.firstMatch(text);
   if (m == null) return null;
-  return double.tryParse(m.group(1)!.replaceAll(',', ''));
+  final v = double.tryParse(m.group(1)!.replaceAll(',', ''));
+  // Zero is not a transaction, and an absurd figure (a balance or an
+  // account number that happened to follow "PKR") must never be
+  // auto-recorded. Same ceiling the receipt parser uses.
+  if (v == null || v <= 0 || v >= 100000000) return null;
+  return v;
 }
 
 bool? _parseDirection(String text) {
@@ -74,10 +79,20 @@ bool? _parseDirection(String text) {
 }
 
 String? _parseMerchant(String text) {
+  // Captures can end in a stray '.' or spaces (the regexes allow dots
+  // inside a name, e.g. "F-10 MARKAZ."); trim them off the end.
+  String clean(String v) =>
+      v.trim().replaceAll(RegExp(r'[.\s]+$'), '').trim();
   var m = _atRe.firstMatch(text);
-  if (m != null) return m.group(1)!.trim();
+  if (m != null) {
+    final v = clean(m.group(1)!);
+    if (v.isNotEmpty) return v;
+  }
   m = _toRe.firstMatch(text);
-  if (m != null) return m.group(1)!.trim();
+  if (m != null) {
+    final v = clean(m.group(1)!);
+    if (v.isNotEmpty) return v;
+  }
   return null;
 }
 
