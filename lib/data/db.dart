@@ -949,10 +949,27 @@ class YaadDb {
       {required String reassignTo}) async {
     final d = await db;
     await d.transaction((txn) async {
+      // The opening balance is the user's money too: it follows the
+      // transactions to the surviving account instead of vanishing
+      // with the deleted row (which silently dropped the total).
+      final rows = await txn.query('accounts',
+          columns: ['openingBalance'],
+          where: 'id = ?',
+          whereArgs: [id],
+          limit: 1);
+      final opening = rows.isEmpty
+          ? 0.0
+          : ((rows.first['openingBalance'] as num?) ?? 0).toDouble();
       await txn.update('transactions', {'accountId': reassignTo},
           where: 'accountId = ?', whereArgs: [id]);
       await txn.update('transactions', {'toAccountId': reassignTo},
           where: 'toAccountId = ?', whereArgs: [id]);
+      if (opening != 0 && reassignTo != id) {
+        await txn.rawUpdate(
+            'UPDATE accounts SET openingBalance = openingBalance + ? '
+            'WHERE id = ?',
+            [opening, reassignTo]);
+      }
       await txn.delete('accounts', where: 'id = ?', whereArgs: [id]);
     });
     await _audit(d, 'account', id, 'deleted',
