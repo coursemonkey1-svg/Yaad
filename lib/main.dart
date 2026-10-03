@@ -130,6 +130,10 @@ class _GateState extends State<Gate> with WidgetsBindingObserver {
     if (!_appLockActive) {
       _unlocked = true; // no app lock: straight in
     } else {
+      // CaptureNotify consults this before opening a tapped
+      // transaction: stash the tap while REALLY locked, open it
+      // immediately while merely lock-capable.
+      CaptureNotify.gateLocked.value = true;
       _auth();
     }
   }
@@ -148,6 +152,16 @@ class _GateState extends State<Gate> with WidgetsBindingObserver {
     } else if (state == AppLifecycleState.resumed) {
       if (_guard.onResumed(
           firstBuild: _firstBuild, appLockEnabled: _appLockActive)) {
+        // Locking swaps this Gate's child for the lock screen — but
+        // routes pushed on the root navigator (Add/Confirm, Inbox,
+        // transaction views, sheets, dialogs) live ABOVE the home
+        // route and would stay on top, fully usable, with the lock
+        // showing underneath: the lock was cosmetic for anyone who
+        // left a screen open. Pop everything back to the shell
+        // first, THEN lock. Disposing ConfirmScreen this way also
+        // stops any in-progress voice recording via its dispose.
+        navigatorKey.currentState?.popUntil((r) => r.isFirst);
+        CaptureNotify.gateLocked.value = true;
         setState(() {
           _unlocked = false;
           _authError = null;
@@ -186,6 +200,7 @@ class _GateState extends State<Gate> with WidgetsBindingObserver {
         });
       }
       if (ok) {
+        CaptureNotify.gateLocked.value = false;
         // A notification tap that arrived while locked was stashed by
         // CaptureNotify instead of opening above the lock screen —
         // honour it now that the user is really in.
@@ -196,6 +211,10 @@ class _GateState extends State<Gate> with WidgetsBindingObserver {
         // the opt-in) with this lock screen, so complete it here from
         // the persisted pending flag.
         unawaited(CaptureService.completePendingNotifOptIn());
+        // And the SMS opt-in: the permission-dialog trip can re-lock
+        // the app the same way, discarding the Settings handler that
+        // asked — complete it from its persisted pending flag too.
+        unawaited(CaptureService.completePendingSmsOptIn());
       }
     } on PlatformException catch (e) {
       // The prompt couldn't be shown. Stay locked and explain what to do —
@@ -386,6 +405,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     // once no opt-in is mid-flight (and skips the notification channel
     // while one is pending).
     await CaptureService.completePendingNotifOptIn();
+    // Same completion for an SMS opt-in whose permission-dialog trip
+    // outlived the Settings screen that started it.
+    await CaptureService.completePendingSmsOptIn();
     // Then make the capture toggles tell the truth: if the OS-level
     // permission/listener access behind a toggle was revoked outside
     // the app (or a restored backup claims capture that was never
@@ -418,14 +440,21 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     }
   }
 
-  void _handleMedia(List<SharedMediaFile> files) {
+  Future<void> _handleMedia(List<SharedMediaFile> files) async {
     if (files.isEmpty) return;
-    final f = files.first;
-    if (f.type == SharedMediaType.text) {
-      _handleText(f.path);
-    } else if (f.type == SharedMediaType.image) {
-      // OCR with progress + error handling — never silent (§4).
-      captureImage(context, f.path);
+    // EVERY shared file, not just the first: sharing three receipt
+    // photos at once used to process one and silently drop the
+    // other two — money the user believed was recorded, gone. Each
+    // image's OCR flow is awaited before the next starts, so the
+    // progress dialogs and confirm screens queue up instead of
+    // stacking on top of each other.
+    for (final f in files) {
+      if (f.type == SharedMediaType.text) {
+        _handleText(f.path);
+      } else if (f.type == SharedMediaType.image) {
+        // OCR with progress + error handling — never silent (§4).
+        await captureImage(context, f.path);
+      }
     }
   }
 
@@ -445,7 +474,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _mediaSub.cancel();
+    // Best-effort: cancelling the share-intent stream must never
+    // surface an unhandled async error during teardown.
+    unawaited(_mediaSub.cancel().catchError((_) {}));
     _ocr.dispose();
     super.dispose();
   }
