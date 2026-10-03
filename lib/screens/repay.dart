@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../data/db.dart';
 import '../l10n/strings.dart';
 import '../main.dart';
+import '../models/account.dart';
 import '../models/lending.dart';
 import '../models/person.dart';
 import '../models/transaction.dart';
@@ -113,16 +114,13 @@ class _RepayScreenState extends State<RepayScreen> {
     final now = DateTime.now();
     final personName = widget.person.name;
 
-    if (_selected != null) {
-      await YaadDb.addRepayment(Repayment(
-        lendingId: _selected!.id,
-        amount: amount,
-        date: now,
-      ));
-    }
-    // A transaction in the "Paid back" bucket — this is real money
-    // movement, but it is not spending and not receiving (§2).
-    await YaadDb.insertTxn(YaadTransaction(
+    // Build the transaction FIRST so the repayment can point at it:
+    // the repayment↔transaction link is followed by the delete/edit
+    // cascades (deleteLending, updateRepayment sync). The flows used
+    // to write the repayment linkless and hang the link only on the
+    // transaction (linkedLendingId), so deleting the lend entry left
+    // this "Paid back" row behind as phantom money.
+    final txn = YaadTransaction(
       amount: amount,
       currency: appState.settings.currency,
       dateTime: now,
@@ -136,8 +134,20 @@ class _RepayScreenState extends State<RepayScreen> {
       personId: widget.person.id,
       linkedLendingId: _selected?.id,
       source: TxnSource.manual,
-      accountId: appState.settings.defaultAccountId,
-    ));
+      accountId: defaultMoneyAccountId(
+          await YaadDb.accounts(), appState.settings.defaultAccountId),
+    );
+    if (_selected != null) {
+      await YaadDb.addRepayment(Repayment(
+        lendingId: _selected!.id,
+        amount: amount,
+        date: now,
+        transactionId: txn.id,
+      ));
+    }
+    // A transaction in the "Paid back" bucket — this is real money
+    // movement, but it is not spending and not receiving (§2).
+    await YaadDb.insertTxn(txn);
     appState.refresh();
     if (mounted) Navigator.of(context).pop();
   }

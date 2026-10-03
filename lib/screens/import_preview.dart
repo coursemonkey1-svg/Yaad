@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../data/db.dart';
 import '../l10n/strings.dart';
 import '../main.dart';
+import '../models/account.dart';
 import '../models/transaction.dart';
 import '../services/importer.dart';
 import '../theme.dart';
@@ -22,7 +24,11 @@ class _ImportPreviewScreenState extends State<ImportPreviewScreen> {
   bool _transfersMarked = false;
 
   List<ParsedRow> get _rows => widget.statement.rows;
-  int get _selected => _rows.where((r) => r.selected && !r.isDuplicate).length;
+
+  /// A row counts toward the import when it is selected — including
+  /// a duplicate the user deliberately force-checked.
+  bool _counts(ParsedRow r) => r.selected && (!r.isDuplicate || r.force);
+  int get _selected => _rows.where(_counts).length;
   int get _suggested =>
       _rows.where((r) => r.suggestedTransfer && !r.isDuplicate).length;
 
@@ -50,13 +56,20 @@ class _ImportPreviewScreenState extends State<ImportPreviewScreen> {
   Future<void> _import() async {
     if (_importing) return;
     setState(() => _importing = true);
-    final selected = _rows.where((r) => r.selected && !r.isDuplicate).toList();
+    final selected = _rows.where(_counts).toList();
     try {
       final report = await StatementImporter().commitRows(
         selected,
         widget.statement.mappingSignature,
         mapping: widget.statement.mapping,
-        accountId: appState.settings.defaultAccountId,
+        currency: appState.settings.currency,
+        // A statement is the BANK's record: its rows belong to the
+        // bank account, never to whatever the UI default happens to
+        // be at import time (default == Savings would park a whole
+        // statement in the stash and corrupt its balance).
+        accountId: bankEventAccountId(await YaadDb.accounts(),
+            defaultBank: appState.settings.defaultBank,
+            preferredId: appState.settings.defaultAccountId),
       );
       appState.refresh();
       if (mounted) Navigator.of(context).pop(report);
@@ -139,21 +152,31 @@ class _ImportPreviewScreenState extends State<ImportPreviewScreen> {
                       itemCount: _rows.length,
                       itemBuilder: (_, i) {
                         final r = _rows[i];
-                        final enabled = !r.isDuplicate;
+                        // Duplicates stay dimmed and unchecked by
+                        // default, but they are NOT dead: a second
+                        // identical real purchase exists, and the
+                        // user can check the row to force it in
+                        // (commit honours ParsedRow.force). Greyed-
+                        // out forever was a one-way door.
+                        final forced = r.isDuplicate && r.force;
                         return Opacity(
-                          opacity: enabled ? 1 : 0.5,
+                          opacity: (r.isDuplicate && !forced) ? 0.5 : 1,
                           child: CheckboxListTile(
-                            value: r.selected && enabled,
-                            enabled: enabled,
-                            onChanged: enabled
-                                ? (v) => setState(() => r.selected = v ?? false)
-                                : null,
+                            value: r.selected && (!r.isDuplicate || r.force),
+                            enabled: true,
+                            onChanged: (v) => setState(() {
+                              final on = v ?? false;
+                              r.selected = on;
+                              if (r.isDuplicate) r.force = on;
+                            }),
                             title: Text(r.merchant,
                                 maxLines: 1, overflow: TextOverflow.ellipsis),
                             subtitle: Text(
                                 '${appState.formatDate(r.date)}${r.isDuplicate ? ' · ${s.get('duplicate')}' : ''}'),
                             secondary: GestureDetector(
-                              onTap: enabled ? () => _cycleKind(r) : null,
+                              onTap: r.isDuplicate
+                                  ? null
+                                  : () => _cycleKind(r),
                               child: _KindChip(kind: r.kind),
                             ),
                             controlAffinity: ListTileControlAffinity.leading,
@@ -190,7 +213,8 @@ class _KindChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final label = kindLabel(kind);
+    final s = Strings(appState.settings.language);
+    final label = s.find('kind_${kind.name}') ?? kindLabel(kind);
     final Color bg;
     switch (kind) {
       case TxnKind.spend:

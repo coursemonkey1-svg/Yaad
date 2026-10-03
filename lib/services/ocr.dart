@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 /// Fields extracted from a receipt image or shared receipt text.
@@ -50,18 +52,19 @@ class OcrResult {
     this.confidence = const {},
   });
 
-  /// True when nothing at all was extracted (rawText may still be set).
+  /// True when nothing FORM-WORTHY was extracted (rawText may still
+  /// be set). Only the core fields count: amount, date, merchant,
+  /// reference, the two parties. Bank name / transaction type /
+  /// account numbers alone do NOT make a result — a receipt where
+  /// OCR found only "Meezan Bank" used to count as success and open
+  /// a blank confirm form with no explanation of what was missing.
   bool get isEmpty =>
       amount == null &&
       date == null &&
       merchant == null &&
       reference == null &&
       recipient == null &&
-      sender == null &&
-      recipientAccount == null &&
-      senderAccount == null &&
-      transactionType == null &&
-      bank == null;
+      sender == null;
 
   /// Core fields that came back empty — for "what's missing" UI.
   List<String> get missingFields => [
@@ -185,7 +188,10 @@ class OcrService {
     }
   }
 
-  void dispose() => _recognizer.close();
+  /// Closing the recognizer is best-effort hygiene: its future is
+  /// fire-and-forget here, so an error from it (channel already gone
+  /// during teardown) must never escape as an unhandled async error.
+  void dispose() => unawaited(_recognizer.close().catchError((_) {}));
 
   // ----------------------------------------------------------------
   // normalize

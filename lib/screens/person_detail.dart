@@ -4,6 +4,7 @@ import 'package:share_plus/share_plus.dart';
 import '../data/db.dart';
 import '../l10n/strings.dart';
 import '../main.dart';
+import '../models/account.dart';
 import '../models/lending.dart';
 import '../models/person.dart';
 import '../models/transaction.dart';
@@ -89,7 +90,13 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                   ],
                 ),
                 const SizedBox(height: Gap.x2),
-                if (d.net != 0)
+                // Settle-up writes a repayment for EVERY record that
+                // still has something left — its visibility must
+                // follow THAT, not the net. When he lent 5,000 and
+                // borrowed 5,000 from the same person, net == 0 yet
+                // both records stand open and the per-record
+                // settlement was unreachable from here.
+                if (d.remaining.values.any((v) => v > 0.005))
                   FilledButton.tonalIcon(
                     onPressed: () => _settleUp(context, d),
                     icon: const Icon(Icons.check_circle_outline),
@@ -199,15 +206,16 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     );
     if (ok != true) return;
     final now = DateTime.now();
+    // Real money in/out books to the money account, never the
+    // Savings stash by accident (default == Savings is one tap away).
+    final moneyAccount = defaultMoneyAccountId(
+        await YaadDb.accounts(), appState.settings.defaultAccountId);
     for (final r in d.records) {
       final rem = d.remaining[r.id] ?? 0;
       if (rem <= 0.005) continue;
-      await YaadDb.addRepayment(
-          Repayment(lendingId: r.id, amount: rem, date: now));
-      // Mirror RepayScreen: the settlement is real money movement,
-      // so it also lands in Activity as a "Paid back" transaction —
-      // settle-up must not be invisible there.
-      await YaadDb.insertTxn(YaadTransaction(
+      // Transaction first, so the repayment can link to it (the
+      // cascades follow Repayment.transactionId).
+      final txn = YaadTransaction(
         amount: rem,
         currency: appState.settings.currency,
         dateTime: now,
@@ -220,8 +228,14 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
         personId: widget.person.id,
         linkedLendingId: r.id,
         source: TxnSource.manual,
-        accountId: appState.settings.defaultAccountId,
-      ));
+        accountId: moneyAccount,
+      );
+      await YaadDb.addRepayment(Repayment(
+          lendingId: r.id, amount: rem, date: now, transactionId: txn.id));
+      // Mirror RepayScreen: the settlement is real money movement,
+      // so it also lands in Activity as a "Paid back" transaction —
+      // settle-up must not be invisible there.
+      await YaadDb.insertTxn(txn);
     }
     appState.refresh();
   }
@@ -472,7 +486,13 @@ class _RepaymentRow extends StatelessWidget {
             cs.surfaceContainerHighest.withValues(alpha: 0.7),
         child: const Icon(Icons.payments_outlined),
       ),
-      title: Text(s.get('kind_repayIn'),
+      // The direction word follows the RECORD: a repayment on money
+      // he BORROWED is "paid back (by him)", not "received back".
+      // English uses "Paid back" for both so the mix-up was invisible
+      // there — in Urdu the two labels are different sentences and
+      // every borrowed-side repayment read backwards.
+      title: Text(
+          s.get(record.isOwedToMe ? 'kind_repayIn' : 'kind_repayOut'),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontWeight: FontWeight.w600)),

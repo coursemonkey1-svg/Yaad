@@ -52,19 +52,26 @@ class SuggestionService {
   ///
   /// Ranking is recency-weighted (see [_scoreSql]). [now] pins the clock
   /// so tests get deterministic results; production callers omit it.
+  /// [kind] scopes the history to one bucket: purposes are kind-bound
+  /// (spend purposes and receive sources are different lists), so a
+  /// suggestion learned from spends must never be offered on a receive.
+  /// The merchant match is case-insensitive — "DARAZ" history counts
+  /// for "Daraz".
   Future<Suggestion?> suggestPurpose(String rawMerchant,
-      {DateTime? now}) async {
+      {DateTime? now, TxnKind? kind}) async {
     final clean = rawMerchant.trim();
     if (clean.isEmpty) return null;
     final nowMs = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    final kindClause = kind == null ? '' : ' AND t.kind = ?';
+    final kindArgs = kind == null ? const <Object?>[] : [kind.name];
 
     // 1) Same merchant before? Use the recency-weighted top purpose.
     final db = await YaadDb.db;
     final rows = await db.rawQuery(
         "SELECT t.purpose, COUNT(*) c, ${_scoreSql('t')} FROM transactions t "
-        "WHERE t.rawMerchant = ? AND t.purpose != 'uncategorized' "
+        "WHERE LOWER(t.rawMerchant) = LOWER(?) AND t.purpose != 'uncategorized'$kindClause "
         "GROUP BY t.purpose ORDER BY score DESC, MAX(t.dateTime) DESC LIMIT 1",
-        [..._cutoffs(nowMs), clean]);
+        [..._cutoffs(nowMs), clean, ...kindArgs]);
     if (rows.isNotEmpty) {
       final purpose = rows.first['purpose'] as String;
       final n = rows.first['c'] as int;
@@ -78,9 +85,9 @@ class SuggestionService {
       final aRows = await db.rawQuery(
           "SELECT t.purpose, ${_scoreSql('t')} FROM transactions t "
           "JOIN aliases a ON t.aliasId = a.id WHERE a.id = ? "
-          "AND t.purpose != 'uncategorized' GROUP BY t.purpose "
+          "AND t.purpose != 'uncategorized'$kindClause GROUP BY t.purpose "
           "ORDER BY score DESC, MAX(t.dateTime) DESC LIMIT 1",
-          [..._cutoffs(nowMs), alias.id]);
+          [..._cutoffs(nowMs), alias.id, ...kindArgs]);
       if (aRows.isNotEmpty) {
         return Suggestion(aRows.first['purpose'] as String,
             'Based on your alias "${alias.alias}"');

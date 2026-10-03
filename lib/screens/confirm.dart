@@ -17,6 +17,7 @@ import '../models/alias.dart';
 import '../models/custom_purpose.dart';
 import '../models/purposes.dart';
 import '../models/transaction.dart';
+import '../services/capture_flow.dart';
 import '../services/ocr.dart';
 import '../services/suggest.dart';
 import '../theme.dart';
@@ -57,6 +58,16 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
   MerchantAlias? _aliasSuggestion;
   List<CustomPurpose> _customs = [];
   late TxnKind _kind;
+
+  /// Non-null when editing a transaction whose kind this screen
+  /// cannot represent (a transfer, or one of the lending kinds).
+  /// Such rows are edited with their kind, direction and purpose
+  /// LOCKED to the stored values — never coerced. The old code
+  /// quietly rewrote any foreign kind to 'spend' in initState, so
+  /// merely editing a savings move's date turned it into spending
+  /// and corrupted Spent, Left, the Savings total and the Balance
+  /// in a single save.
+  TxnKind? _lockedKind;
   DateTime _date = DateTime.now();
   // Money account: prefilled with the default, one tap to switch.
   List<Account> _accounts = [];
@@ -70,6 +81,13 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
   int _recSecs = 0;
   String _voiceText = '';
   String _partial = '';
+
+  /// True once the CURRENT recording take has produced a final
+  /// transcript. A replacement take replaces the old transcript only
+  /// when it actually says something: clearing the text at record
+  /// start meant a take on a phone where speech recognition never
+  /// starts silently erased the previous transcript at save.
+  bool _takeHasFinal = false;
   String? _savedAudioPath; // recording that belongs to the edited txn
   String? _pendingAudioPath; // recording made in this session, not yet saved
   bool _playing = false;
@@ -94,9 +112,12 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     final e = widget.editing;
     final r = widget.initial;
     _kind = e?.kind ?? widget.initialKind;
-    // Lending kinds are recorded on the Udhaar screens, not here.
-    if (_kind != TxnKind.spend && _kind != TxnKind.receive) {
-      _kind = TxnKind.spend;
+    // Lending kinds are recorded on the Udhaar screens, and a
+    // transfer's two legs live on its one row — this screen edits
+    // spend/receive only. A foreign kind arriving here (via the
+    // view screen's Edit) is locked, not converted: see _lockedKind.
+    if (e != null && _kind != TxnKind.spend && _kind != TxnKind.receive) {
+      _lockedKind = _kind;
     }
     if (e != null) {
       _amountCtrl.text = e.amount.toStringAsFixed(
@@ -284,7 +305,11 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
 
   Future<void> _loadSuggestion(String raw) async {
     if (!appState.settings.smartSuggestions) return;
-    final s = await _suggest.suggestPurpose(raw);
+    if (_lockedKind != null) return;
+    // Kind-scoped: history from the OTHER bucket must never suggest
+    // a purpose this entry cannot hold (a spend-only purpose offered
+    // on a Receive entry saved verbatim and polluted the breakdowns).
+    final s = await _suggest.suggestPurpose(raw, kind: _kind);
     if (mounted && s != null) {
       setState(() {
         _suggestedPurpose = s.purpose;
@@ -378,12 +403,15 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     }
 
     // The recorder is rolling — only NOW swap out any earlier
-    // in-session take and its transcript. Doing this before start
-    // meant a failed start destroyed a recording the user had
-    // already made in this session.
+    // in-session take. Doing this before start meant a failed start
+    // destroyed a recording the user had already made in this
+    // session. The earlier take's TRANSCRIPT is not cleared here:
+    // it is replaced when this take produces its first final words
+    // (see _takeHasFinal), so a take that transcribes nothing does
+    // not erase what the user already had.
     final oldPending = _pendingAudioPath;
     _pendingAudioPath = path;
-    _voiceText = '';
+    _takeHasFinal = false;
     _partial = '';
     if (oldPending != null && oldPending != path) {
       await _deleteFile(oldPending);
@@ -402,8 +430,16 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
               if (res.finalResult) {
                 final words = res.recognizedWords.trim();
                 if (words.isNotEmpty) {
-                  _voiceText =
-                      _voiceText.isEmpty ? words : '$_voiceText $words';
+                  if (!_takeHasFinal) {
+                    // First words of THIS take: they replace whatever
+                    // transcript the previous take (or the saved
+                    // recording) left behind.
+                    _voiceText = words;
+                    _takeHasFinal = true;
+                  } else {
+                    _voiceText =
+                        _voiceText.isEmpty ? words : '$_voiceText $words';
+                  }
                 }
                 _partial = '';
               } else {
@@ -606,6 +642,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     // Saving mid-recording would store a half-written audio file —
     // stop first so the recording is complete on disk.
     if (_recording) await _stopRecording();
+    if (!mounted) return;
     final amount =
         double.tryParse(_amountCtrl.text.replaceAll(',', '')) ?? 0;
     if (amount <= 0) {
@@ -622,6 +659,12 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     }
     setState(() => _saving = true);
     String? audioPath;
+    // The replaced recording's file, deleted ONLY after the database
+    // write succeeds (below). Deleting it before the write — the old
+    // order — meant a failed save left the stored row pointing at a
+    // file that no longer existed: playback dead forever, transcript
+    // floating over nothing.
+    String? replacedAudioPath;
     try {
     final merchant = _merchantCtrl.text.trim();
     final aliasText = _aliasCtrl.text.trim();
@@ -637,10 +680,10 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     audioPath = _pendingAudioPath ?? _savedAudioPath;
     if (e != null && e.audioPath != null && e.audioPath != audioPath) {
       // The saved recording was replaced or removed in this edit.
-      // Its file is deleted only now — at save time — so backing out
-      // of the editor never leaves the stored row pointing at a
-      // deleted file.
-      await _deleteFile(e.audioPath);
+      // Remember its file; it is deleted on the success path only,
+      // so a failed save (or backing out) never leaves the stored
+      // row pointing at a deleted file.
+      replacedAudioPath = e.audioPath;
     }
     if (audioPath != null && !await File(audioPath).exists()) {
       audioPath = null;
@@ -649,15 +692,20 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         _voiceText.trim().isEmpty ? null : _voiceText.trim();
 
     if (e != null) {
+      final locked = _lockedKind != null;
       await YaadDb.updateTxn(e.copyWith(
         amount: amount,
         dateTime: _date,
-        kind: _kind,
-        direction:
-            _isSpend ? TxnDirection.out : TxnDirection.incoming,
+        // A locked kind keeps its stored kind, direction and purpose
+        // verbatim — only the fields this screen can honestly edit
+        // (amount, date, name, note, voice, account) change.
+        kind: locked ? e.kind : _kind,
+        direction: locked
+            ? e.direction
+            : (_isSpend ? TxnDirection.out : TxnDirection.incoming),
         rawMerchant: merchant,
         aliasId: aliasId ?? e.aliasId,
-        purpose: _purpose,
+        purpose: locked ? e.purpose : _purpose,
         note: _noteCtrl.text.trim(),
         audioPath: audioPath,
         voiceNote: voiceNote,
@@ -666,20 +714,44 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       ));
     } else {
       final r = widget.initial;
-      // Duplicate guard for receipt imports.
+      // Duplicate guard for receipt imports. Two identical REAL
+      // purchases (same amount, shop, day — the second chai) are
+      // legitimate, so this asks instead of hard-blocking: the old
+      // behaviour popped the screen and threw away everything typed
+      // or recorded in the session.
       if (r != null) {
         final dup = await YaadDb.findDuplicate(
           bankReference: r.reference,
           amount: amount,
           rawMerchant: merchant,
           date: _date,
+          kind: _kind,
         );
-        if (dup != null && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(Strings(appState.settings.language).get('alreadyRecorded'))));
-          setState(() => _saving = false);
-          Navigator.of(context).pop();
-          return;
+        if (dup != null) {
+          final s = Strings(appState.settings.language);
+          final saveAnyway = mounted
+              ? await showDialog<bool>(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: Text(s.get('duplicateTitle')),
+                    content: Text(s.get('duplicateBody')),
+                    actions: [
+                      TextButton(
+                          onPressed: () =>
+                              Navigator.of(context).pop(false),
+                          child: Text(s.get('cancel'))),
+                      FilledButton(
+                          onPressed: () =>
+                              Navigator.of(context).pop(true),
+                          child: Text(s.get('saveAnyway'))),
+                    ],
+                  ),
+                )
+              : null;
+          if (saveAnyway != true) {
+            if (mounted) setState(() => _saving = false);
+            return;
+          }
         }
       }
       await YaadDb.insertTxn(YaadTransaction(
@@ -696,7 +768,10 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         audioPath: audioPath,
         voiceNote: voiceNote,
         accountId: _accountId,
-        receiptPath: r?.imagePath,
+        // The picker/share path is a cache file the OS may clean at
+        // any time — copy the receipt into the app's own folder so
+        // the saved entry keeps its proof.
+        receiptPath: await persistReceiptImage(r?.imagePath),
         bankReference: r?.reference,
         source: r != null
             ? (r.imagePath != null ? TxnSource.ocr : TxnSource.share)
@@ -722,6 +797,10 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     // and playback in the view screen pointed at a missing file.)
     _savedAudioPath = audioPath;
     _pendingAudioPath = null;
+    // The write succeeded: the replaced recording's file can go now.
+    if (replacedAudioPath != null) {
+      await _deleteFile(replacedAudioPath);
+    }
     appState.refresh();
     if (mounted) {
       // If the saved date falls outside the period Home is currently
@@ -743,13 +822,24 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
   }
 
   Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    // New picks cap at today (the Lend/Borrow pickers already do):
+    // every open viewing period ends at "now", so a future-dated
+    // entry would be invisible on Home, Activity and Summary until
+    // its date arrives — the "I saved it and nothing happened"
+    // experience. An EXISTING future-dated row being edited (a
+    // statement import dated ahead) keeps its own day reachable:
+    // the ceiling extends to it, because showDatePicker throws when
+    // initialDate lies outside [firstDate, lastDate].
+    final last = _date.isAfter(today) ? _date : today;
     final d = await showDatePicker(
       context: context,
       initialDate: _date,
       firstDate: DateTime(2000),
-      lastDate: DateTime.now().add(const Duration(days: 1)),
+      lastDate: last,
     );
-    if (d != null) setState(() => _date = d);
+    if (d != null && mounted) setState(() => _date = d);
   }
 
   void _setKind(TxnKind kind) {
@@ -757,7 +847,13 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       _kind = kind;
       // Reset to the neutral default of the new bucket.
       _purpose = kind == TxnKind.spend ? 'uncategorized' : 'other_in';
+      // A suggestion earned under the other kind dies with the
+      // toggle — it names a purpose this bucket cannot hold.
+      _suggestedPurpose = null;
+      _suggestionReason = null;
     });
+    final m = _merchantCtrl.text.trim();
+    if (m.length > 2) _loadSuggestion(m);
   }
 
   @override
@@ -806,21 +902,34 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
             ),
           ),
           const SizedBox(height: Gap.x1 + 4),
-          // Kind selector: which bucket this lands in.
-          SegmentedButton<TxnKind>(
-            segments: [
-              ButtonSegment(
-                  value: TxnKind.spend,
-                  label: Text(s.get('iSpent')),
-                  icon: const Icon(Icons.north_east)),
-              ButtonSegment(
-                  value: TxnKind.receive,
-                  label: Text(s.get('iReceived')),
-                  icon: const Icon(Icons.south_west)),
-            ],
-            selected: {_kind},
-            onSelectionChanged: (v) => _setKind(v.first),
-          ),
+          // Kind selector: which bucket this lands in. For a locked
+          // kind (a transfer / lending row being edited) there is no
+          // selector — the type is shown, fixed, because this screen
+          // cannot re-bucket the row without corrupting it.
+          if (_lockedKind == null)
+            SegmentedButton<TxnKind>(
+              segments: [
+                ButtonSegment(
+                    value: TxnKind.spend,
+                    label: Text(s.get('iSpent')),
+                    icon: const Icon(Icons.north_east)),
+                ButtonSegment(
+                    value: TxnKind.receive,
+                    label: Text(s.get('iReceived')),
+                    icon: const Icon(Icons.south_west)),
+              ],
+              selected: {_kind},
+              onSelectionChanged: (v) => _setKind(v.first),
+            )
+          else
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Chip(
+                avatar: const Icon(Icons.lock_outline, size: 16),
+                label: Text(
+                    s.find('kind_${_kind.name}') ?? kindLabel(_kind)),
+              ),
+            ),
           const SizedBox(height: Gap.x1 + 4),
           // Account picker: which money this is. Prefilled with the
           // default — one tap to switch, then Save as usual (≤ 2 taps).
@@ -903,27 +1012,29 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
                 ],
               ),
             ),
-          Text(_isSpend ? s.get('purpose') : s.get('source'),
-              style: const TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: Gap.x1),
-          PurposeGrid(
-            purposes: _pickerPurposes,
-            selected: _purpose,
-            onSelect: (p) => setState(() => _purpose = p),
-            suggested: _suggestedPurpose,
-            suggestionReason: _suggestionReason,
-            customIds: _customIds,
-            onAddCustom: _isSpend ? _addCustomPurpose : null,
-            newTileLabel: s.get('newPurpose'),
-            onDeleteCustom: _deleteCustomPurpose,
-          ),
-          // Discoverability: long-press to delete is otherwise invisible.
-          if (_isSpend && _customs.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(s.get('longPressHint'),
-                  style: Theme.of(context).textTheme.bodySmall),
+          if (_lockedKind == null) ...[
+            Text(_isSpend ? s.get('purpose') : s.get('source'),
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: Gap.x1),
+            PurposeGrid(
+              purposes: _pickerPurposes,
+              selected: _purpose,
+              onSelect: (p) => setState(() => _purpose = p),
+              suggested: _suggestedPurpose,
+              suggestionReason: _suggestionReason,
+              customIds: _customIds,
+              onAddCustom: _isSpend ? _addCustomPurpose : null,
+              newTileLabel: s.get('newPurpose'),
+              onDeleteCustom: _deleteCustomPurpose,
             ),
+            // Discoverability: long-press to delete is otherwise invisible.
+            if (_isSpend && _customs.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(s.get('longPressHint'),
+                    style: Theme.of(context).textTheme.bodySmall),
+              ),
+          ],
           const SizedBox(height: Gap.x1 + 4),
           // Alias: your own recognizable name.
           TextField(
