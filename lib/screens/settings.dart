@@ -593,6 +593,12 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
     if (ok == true) {
+      // Capture the messenger BEFORE the settings reset: resetting
+      // flips onboardingDone off, YaadApp swaps the whole shell for
+      // the onboarding screen, and this context unmounts — the
+      // "all data deleted" confirmation raced that rebuild and was
+      // sometimes never shown. The root messenger survives the swap.
+      final messenger = ScaffoldMessenger.of(context);
       await YaadDb.wipeAll();
       // Factory reset of everything that lives OUTSIDE the database,
       // so "deleted" is deleted everywhere:
@@ -617,11 +623,14 @@ class SettingsScreen extends StatelessWidget {
       await CaptureService.clearCaptureQueues();
       await CaptureInbox.instance.clear();
       await DemoData.clearOpeningsSnapshot();
+      // And the FILES: voice-note recordings (spoken financial
+      // details), saved receipt images, and every exported backup /
+      // CSV (each a complete financial history) must not survive a
+      // "delete all my data" either.
+      await BackupService.deleteWipeLeftovers();
       appState.refresh();
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(s.get('allDataDeleted'))));
-      }
+      messenger.showSnackBar(
+          SnackBar(content: Text(s.get('allDataDeleted'))));
     }
   }
 }
@@ -756,6 +765,36 @@ class _CaptureSectionState extends State<_CaptureSection>
     // (the shell-level pass in main.dart covers start/resume; this
     // closes the "opened Settings directly" gap).
     CaptureService.reconcileCaptureFlags();
+    // A capture opt-in that completed (elsewhere — Gate unlock or
+    // shell drain) with the grant still missing owes the user its
+    // explanation HERE: the Settings state that started the trip may
+    // have been disposed by the Gate, so the miss is persisted in
+    // settings and the fresh screen delivers the nudge.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showMissedNudges());
+  }
+
+  Future<void> _showMissedNudges() async {
+    if (!mounted) return;
+    final st = Strings(appState.settings.language);
+    final cur = appState.settings;
+    if (cur.notifOptInMissed) {
+      await appState
+          .update(appState.settings.copyWith(notifOptInMissed: false));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(st.get('notifAccessNeeded')),
+        action: SnackBarAction(
+            label: st.get('openSettings'),
+            onPressed: _retryNotifSettings),
+      ));
+    }
+    if (appState.settings.smsOptInMissed) {
+      await appState
+          .update(appState.settings.copyWith(smsOptInMissed: false));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(st.get('smsPermissionDenied'))));
+    }
   }
 
   @override
@@ -768,7 +807,25 @@ class _CaptureSectionState extends State<_CaptureSection>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _resumeNotifOptIn();
+      _resumeSmsOptIn();
     }
+  }
+
+  /// The user came back from the SMS permission dialog: finish the
+  /// pending SMS opt-in (persisted flag; the shell's drain pass and
+  /// the Gate's unlock pass run it too — first one wins). A miss is
+  /// explained, never silent.
+  Future<void> _resumeSmsOptIn() async {
+    final outcome = await CaptureService.completePendingSmsOptIn();
+    if (!mounted || outcome != SmsOptInOutcome.missing) return;
+    // This screen delivered the explanation; consume the persisted
+    // miss so a later fresh Settings doesn't repeat it.
+    await appState
+        .update(appState.settings.copyWith(smsOptInMissed: false));
+    if (!mounted) return;
+    final st = Strings(appState.settings.language);
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(st.get('smsPermissionDenied'))));
   }
 
   /// The user came back from system settings: finish the pending
@@ -787,6 +844,11 @@ class _CaptureSectionState extends State<_CaptureSection>
     final enabled = outcome == NotifOptInOutcome.enabled ||
         appState.settings.notificationCapture;
     if (enabled || !wasMine) return;
+    // This screen delivered the nudge; consume the persisted miss so
+    // a later fresh Settings doesn't repeat it.
+    await appState
+        .update(appState.settings.copyWith(notifOptInMissed: false));
+    if (!mounted) return;
     final st = Strings(appState.settings.language);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(st.get('notifAccessNeeded')),
@@ -798,24 +860,31 @@ class _CaptureSectionState extends State<_CaptureSection>
 
   /// Snackbar retry: re-arm the pending opt-in and open system
   /// settings again — and if even that fails, say how to get there
-  /// manually instead of doing nothing.
+  /// manually instead of doing nothing. A failed open also disarms
+  /// the pending flag: the user never left the app, so no resume
+  /// will ever complete it, and a stale pending flag freezes the
+  /// notification channel out of reconciliation meanwhile.
   Future<void> _retryNotifSettings() async {
     await appState
         .update(appState.settings.copyWith(notifOptInPending: true));
     _sentToNotifSettings = true;
-    await _openNotifSettingsOrExplain();
+    if (!await _openNotifSettingsOrExplain()) {
+      await appState
+          .update(appState.settings.copyWith(notifOptInPending: false));
+    }
   }
 
   /// Opens system notification settings; on failure shows the manual
   /// path ('notifOpenSettingsFailed'). A button that silently does
-  /// nothing reads as a broken app.
-  Future<void> _openNotifSettingsOrExplain() async {
+  /// nothing reads as a broken app. Returns whether settings opened.
+  Future<bool> _openNotifSettingsOrExplain() async {
     final opened = await CaptureService.openNotificationSettings();
     if (!opened && mounted) {
       final st = Strings(appState.settings.language);
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(st.get('notifOpenSettingsFailed'))));
     }
+    return opened;
   }
 
   /// First-run guide for the restricted-settings wall on sideloaded
@@ -869,12 +938,24 @@ class _CaptureSectionState extends State<_CaptureSection>
     return false;
   }
 
+  /// Native capture-flag writes from this screen must never crash a
+  /// toggle handler when the channel is unavailable (non-Android
+  /// build): the settings flag is the in-app truth, and reconcile
+  /// re-asserts the native side on the next pass.
+  Future<void> _native(Future<void> Function() f) async {
+    try {
+      await f();
+    } catch (_) {
+      // See above.
+    }
+  }
+
   Future<void> _toggleSms(bool on) async {
     final s = Strings(appState.settings.language);
     if (!on) {
-      await appState.update(
-          appState.settings.copyWith(smsCapture: false));
-      await CaptureService.setSmsEnabled(false);
+      await appState.update(appState.settings
+          .copyWith(smsCapture: false, smsOptInPending: false));
+      await _native(() => CaptureService.setSmsEnabled(false));
       return;
     }
     // Restricted-settings guide on first enable (sideloaded builds).
@@ -896,15 +977,22 @@ class _CaptureSectionState extends State<_CaptureSection>
       ),
     );
     if (go != true || !mounted) return;
-    final status = await Permission.sms.request();
+    // Persist the pending opt-in BEFORE the system permission
+    // dialog: the trip can tear this screen down (the app-lock Gate
+    // re-locks while the permission activity is up), and the old
+    // code's `if (!mounted) return` after the request threw a
+    // GRANTED permission away — the toggle stayed off, unexplained.
+    // The persisted flag lets the completion pass (here, shell
+    // drain, or Gate unlock — first one wins) finish the job.
+    await appState
+        .update(appState.settings.copyWith(smsOptInPending: true));
+    await Permission.sms.request();
+    final outcome = await CaptureService.completePendingSmsOptIn();
     if (!mounted) return;
-    if (status.isGranted) {
-      await appState.update(
-          appState.settings.copyWith(smsCapture: true));
-      await CaptureService.setSmsEnabled(true);
-      // Drain anything already queued.
-      await CaptureService.drainAndImport();
-    } else {
+    if (outcome == SmsOptInOutcome.missing) {
+      await appState
+          .update(appState.settings.copyWith(smsOptInMissed: false));
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(s.get('smsPermissionDenied'))));
     }
@@ -915,7 +1003,7 @@ class _CaptureSectionState extends State<_CaptureSection>
     if (!on) {
       await appState.update(appState.settings
           .copyWith(notificationCapture: false, notifOptInPending: false));
-      await CaptureService.setNotificationEnabled(false);
+      await _native(() => CaptureService.setNotificationEnabled(false));
       return;
     }
     // Access already granted (turned on earlier in system settings,
@@ -952,18 +1040,24 @@ class _CaptureSectionState extends State<_CaptureSection>
       // Persist the pending opt-in BEFORE leaving for system
       // settings: widget state would not survive the trip (the
       // app-lock Gate can tear this screen down on re-lock), the
-      // settings flag does. Resume/unlock passes complete it.
+      // settings flag does. Resume/unlock passes complete it. If
+      // opening settings FAILS, the user never left — disarm the
+      // flag again, or it would sit pending forever and freeze the
+      // notification channel out of reconciliation.
       await appState
           .update(appState.settings.copyWith(notifOptInPending: true));
       _sentToNotifSettings = true;
-      await _openNotifSettingsOrExplain();
+      if (!await _openNotifSettingsOrExplain()) {
+        await appState
+            .update(appState.settings.copyWith(notifOptInPending: false));
+      }
     }
   }
 
   Future<void> _enableNotif() async {
     await appState.update(appState.settings
         .copyWith(notificationCapture: true, notifOptInPending: false));
-    await CaptureService.setNotificationEnabled(true);
+    await _native(() => CaptureService.setNotificationEnabled(true));
     await CaptureService.drainAndImport();
   }
 

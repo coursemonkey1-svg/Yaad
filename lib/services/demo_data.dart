@@ -38,6 +38,24 @@ class DemoData {
     await prefs.remove(_kOpeningsKey);
   }
 
+  /// The raw openings-snapshot string, exactly as stored — exposed
+  /// so the BACKUP can carry it to another phone. Without it, demo
+  /// data imported from a backup could never be removed cleanly:
+  /// removal restores the user's own openings from this snapshot,
+  /// and a phone that never saw one kept the demo openings forever
+  /// (phantom money with zero transactions behind it).
+  static Future<String?> snapshotRaw() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kOpeningsKey);
+  }
+
+  /// Restores a snapshot string written by [snapshotRaw] (used by
+  /// the backup import path).
+  static Future<void> restoreSnapshotRaw(String raw) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kOpeningsKey, raw);
+  }
+
   /// The openings the demo runs with: a believable month-start state.
   static const _demoOpenings = {
     Account.seedMeezan: 120000.0,
@@ -77,6 +95,14 @@ class DemoData {
   static Future<bool> addDemo({String currency = 'PKR'}) async {
     if (await hasDemo()) return false;
     final d = await YaadDb.db;
+
+    // The demo dataset references the three seeded accounts by id.
+    // On an install that deleted one (the "all-user" edge — though
+    // the app keeps at least one account, a seed can be gone),
+    // writing demo rows against a nonexistent account would strand
+    // them where no balance can see them. Re-seed the missing ones
+    // (at 0) first so every demo row has a real home.
+    await YaadDb.ensureSeedAccounts();
 
     // Opening balances: snapshot the user's own first (once), then
     // set the demo's so every balance looks lived-in.
@@ -359,6 +385,11 @@ class DemoData {
   /// reassigned to "Other", never deleted), and a demo person is only
   /// deleted once nothing references them any more.
   static Future<void> removeDemo() async {
+    // Captured BEFORE deletion: the no-snapshot openings fallback
+    // below may only fire when demo rows were actually present —
+    // otherwise a stray removeDemo call on a phone that never added
+    // demo data would zero the user's real opening balances.
+    final hadDemo = await hasDemo();
     final d = await YaadDb.db;
     await d.transaction((txn) async {
       // Repayments hanging off demo lending first (FK order).
@@ -395,6 +426,17 @@ class DemoData {
             e.key, (e.value as num?)?.toDouble() ?? 0);
       }
       await prefs.remove(_kOpeningsKey);
+    } else if (hadDemo) {
+      // Demo rows were present but NO snapshot exists — this happens
+      // when demo data arrived via a backup that predates snapshot
+      // export (or the snapshot was lost). The openings currently on
+      // the accounts ARE the demo's (120,000 / 20,000 / 5,000), and
+      // leaving them would keep 1,45,000 of phantom money on screen
+      // with zero transactions behind it. Zero the three seeds: the
+      // only honest default when the user's own are unknowable.
+      for (final id in _demoOpenings.keys) {
+        await YaadDb.setOpeningBalance(id, 0);
+      }
     }
   }
 }
