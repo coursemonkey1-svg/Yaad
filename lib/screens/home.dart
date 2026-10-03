@@ -71,9 +71,15 @@ class HomeScreen extends StatelessWidget {
     final left = monthLeft(
         received: monthReceived, spent: monthSpent, parked: monthParked);
 
-    // Savings: the backup stash. A single transfer row carries both
-    // legs (accountId = from, toAccountId = to), so total = in − out.
-    final savingsTotal = await YaadDb.savingsTotal();
+    // Savings: the card shows the Savings ACCOUNT BALANCE — opening
+    // plus every leg, in and out — the same number the Accounts
+    // screen shows. It used to show transfers-only (savingsTotal),
+    // so a Savings account holding a 10,000 opening and no moves yet
+    // read "PKR 0" here and 10,000 in Accounts, on the same phone,
+    // at the same moment — and "Take back" didn't even appear,
+    // because the button was gated on the transfers-only figure.
+    final balances = await YaadDb.accountBalances();
+    final savingsTotal = balances[Account.seedSavings] ?? 0;
     final accounts = await YaadDb.accounts();
     Account? byId(String id) {
       for (final a in accounts) {
@@ -129,11 +135,16 @@ class HomeScreen extends StatelessWidget {
     // a blank Recent list).
     final hasAnyTxn = (await YaadDb.txns(limit: 1)).isNotEmpty;
     // Balances: opening + all legs, all time (v1.5). The hero stays
-    // month-flow; the balance is its own element under it.
-    final totalBalance = await YaadDb.totalBalance();
+    // month-flow; the balance is its own element under it. The total
+    // is the sum of the per-account balances loaded above — one
+    // source, so the Balance card and the Savings card can never
+    // disagree about what an account holds.
+    final totalBalance =
+        balances.values.fold<double>(0, (a, b) => a + b);
     return _Dash(
       hasAnyTxn: hasAnyTxn,
       totalBalance: totalBalance,
+      balances: balances,
       monthSpent: monthSpent,
       monthReceived: monthReceived,
       monthLeft: left,
@@ -272,6 +283,7 @@ class HomeScreen extends StatelessWidget {
                   if (d.hasSavingsAccount && appState.settings.showSavings)
                     _SavingsCard(
                       total: d.savingsTotal,
+                      balances: d.balances,
                       counterpartId: d.counterpartId,
                       counterpartName: d.counterpartName,
                       savingsName: d.savingsName,
@@ -339,6 +351,11 @@ class HomeScreen extends StatelessWidget {
 class _Dash {
   final bool hasAnyTxn;
   final double totalBalance;
+
+  /// Every account's balance (opening + all legs) — the Savings
+  /// card reads its own figure from here, and the move sheet guards
+  /// against these.
+  final Map<String, double> balances;
   final double monthSpent, monthReceived, monthLeft;
   final double owedToMe, iOwe;
   final double savingsTotal;
@@ -351,6 +368,7 @@ class _Dash {
   _Dash({
     required this.hasAnyTxn,
     required this.totalBalance,
+    required this.balances,
     required this.monthSpent,
     required this.monthReceived,
     required this.monthLeft,
@@ -517,6 +535,10 @@ class _MiniCard extends StatelessWidget {
 class _SavingsCard extends StatelessWidget {
   final double total;
 
+  /// All account balances — the move sheet refuses a move larger
+  /// than the from-account actually holds.
+  final Map<String, double> balances;
+
   /// The account on the other side of a move — null when Savings is
   /// the only account, in which case no move is possible at all.
   final String? counterpartId;
@@ -528,6 +550,7 @@ class _SavingsCard extends StatelessWidget {
   final List<Account> otherAccounts;
   const _SavingsCard({
     required this.total,
+    required this.balances,
     required this.counterpartId,
     required this.counterpartName,
     required this.savingsName,
@@ -546,6 +569,7 @@ class _SavingsCard extends StatelessWidget {
         others: otherAccounts,
         initialOtherId: otherId,
         initialOtherName: counterpartName,
+        balances: balances,
       ),
     ).then((_) => appState.refresh());
   }
@@ -645,12 +669,17 @@ class _SavingsSheet extends StatefulWidget {
   final List<Account> others;
   final String initialOtherId;
   final String initialOtherName;
+
+  /// Balances at open time — a move may not exceed what the
+  /// from-account holds.
+  final Map<String, double> balances;
   const _SavingsSheet({
     required this.add,
     required this.savingsName,
     required this.others,
     required this.initialOtherId,
     required this.initialOtherName,
+    required this.balances,
   });
 
   @override
@@ -709,6 +738,12 @@ class _SavingsSheetState extends State<_SavingsSheet> {
     if (_fromId == _toId) return;
     final amount = _amount;
     if (amount <= 0) return;
+    // Never move money an account does not hold: an unguarded move
+    // drove the from-account's balance negative while the app's own
+    // card celebrated the parked total — a Savings stash funded by
+    // money that never existed. (The button is disabled in this
+    // state too; this is the belt to its braces.)
+    if (amount > (widget.balances[_fromId] ?? 0) + 0.005) return;
     setState(() => _moving = true);
     final s = Strings(appState.settings.language);
     final messenger = ScaffoldMessenger.of(context);
@@ -755,6 +790,8 @@ class _SavingsSheetState extends State<_SavingsSheet> {
   Widget build(BuildContext context) {
     final s = Strings(appState.settings.language);
     final cs = Theme.of(context).colorScheme;
+    final fromBalance = widget.balances[_fromId] ?? 0;
+    final overBalance = _amount > fromBalance + 0.005;
     return Padding(
       padding:
           EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
@@ -821,9 +858,20 @@ class _SavingsSheetState extends State<_SavingsSheet> {
                   ),
                   onChanged: (_) => setState(() {}),
                 ),
+                if (overBalance) ...[
+                  const SizedBox(height: Gap.x1),
+                  Text(
+                    s
+                        .get('notEnoughInAccount')
+                        .replaceFirst('{account}', _fromName(s)),
+                    style: TextStyle(color: cs.error),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
                 const SizedBox(height: Gap.x2),
                 FilledButton(
-                  onPressed: _amount > 0 && !_moving ? _move : null,
+                  onPressed:
+                      _amount > 0 && !overBalance && !_moving ? _move : null,
                   child: Text(s.get('move')),
                 ),
               ],
@@ -955,12 +1003,12 @@ class _TxnRow extends StatelessWidget {
         }
       }
       if (from.isNotEmpty && to.isNotEmpty) return '$from → $to';
-      return kindLabel(txn.kind);
+      return s.find('kind_${txn.kind.name}') ?? kindLabel(txn.kind);
     }
     final alias = names?.alias;
     if (alias != null) return alias;
     if (txn.rawMerchant.isNotEmpty) return txn.rawMerchant;
-    return purposeLabel(txn.purpose);
+    return s.find('purpose_${txn.purpose}') ?? purposeLabel(txn.purpose);
   }
 
   @override
@@ -1082,8 +1130,17 @@ class _TxnRow extends StatelessWidget {
                 _chip(context, '$from → $to', cs.tertiary,
                     icon: Icons.swap_horiz),
             ] else ...[
-              _chip(context, kindLabel(txn.kind), tint),
-              _chip(context, purposeLabel(txn.purpose),
+              // Localized like the view screen: built-in kinds and
+              // purposes have string keys; custom purposes fall back
+              // to their own (user-typed) label via purposeLabel.
+              _chip(
+                  context,
+                  s.find('kind_${txn.kind.name}') ?? kindLabel(txn.kind),
+                  tint),
+              _chip(
+                  context,
+                  s.find('purpose_${txn.purpose}') ??
+                      purposeLabel(txn.purpose),
                   cs.onSurfaceVariant),
               _chip(context, names?.accountLabel ?? '', cs.tertiary,
                   icon: Icons.account_balance_wallet_outlined),

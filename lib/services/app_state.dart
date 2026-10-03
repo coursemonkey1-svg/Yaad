@@ -7,6 +7,15 @@ import 'package:timezone/timezone.dart' as tz;
 import '../l10n/strings.dart';
 import '../models/settings.dart';
 
+/// One amount sanity rule for every money entry point (Confirm,
+/// Lend, Borrow, the Udhaar editors): finite, positive, and below
+/// 100 million in the entry's currency. The lending screens checked
+/// only `> 0`, so a pasted "1e309" parsed to Infinity and was
+/// STORED — after which every Udhaar total rendered "PKR ∞" and the
+/// record could never settle (no repayment can exceed infinity… and
+/// `double.tryParse` happily produces it).
+bool isSaneAmount(double v) => v.isFinite && v > 0 && v < 100000000;
+
 /// App-wide state: settings + a refresh signal the UI listens to.
 /// No accounts, no cloud — everything local.
 class AppState extends ChangeNotifier {

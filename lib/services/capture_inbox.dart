@@ -15,6 +15,13 @@ class InboxEntry {
   final bool needsReview;
   final bool read;
 
+  /// Whether the money LEFT the account (a spend) as opposed to
+  /// arriving. Stored explicitly: the inbox used to show every entry
+  /// as a bare positive amount, so a PKR 50,000 credit and a PKR
+  /// 50,000 spend looked identical. Entries persisted before this
+  /// field existed default to money-out (the common bank alert).
+  final bool isOut;
+
   const InboxEntry({
     required this.id,
     required this.txnId,
@@ -23,6 +30,7 @@ class InboxEntry {
     required this.time,
     required this.needsReview,
     this.read = false,
+    this.isOut = true,
   });
 
   InboxEntry markRead() => InboxEntry(
@@ -33,6 +41,7 @@ class InboxEntry {
         time: time,
         needsReview: needsReview,
         read: true,
+        isOut: isOut,
       );
 
   Map<String, dynamic> toJson() => {
@@ -43,6 +52,7 @@ class InboxEntry {
         'time': time.toIso8601String(),
         'needsReview': needsReview,
         'read': read,
+        'isOut': isOut,
       };
 
   factory InboxEntry.fromJson(Map<String, dynamic> j) => InboxEntry(
@@ -53,6 +63,7 @@ class InboxEntry {
         time: DateTime.tryParse('${j['time'] ?? ''}') ?? DateTime.now(),
         needsReview: j['needsReview'] == true,
         read: j['read'] == true,
+        isOut: j['isOut'] != false,
       );
 }
 
@@ -121,6 +132,7 @@ class CaptureInbox extends ChangeNotifier {
     required double amount,
     required DateTime time,
     required bool needsReview,
+    bool isOut = true,
   }) async {
     if (!_loaded) await load();
     // One entry per transaction: if this txn was captured twice (e.g.
@@ -137,6 +149,7 @@ class CaptureInbox extends ChangeNotifier {
       amount: amount,
       time: time,
       needsReview: needsReview,
+      isOut: isOut,
     );
     var at = _entries.indexWhere((e) => e.time.isBefore(time));
     if (at < 0) at = _entries.length;

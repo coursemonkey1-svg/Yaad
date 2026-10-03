@@ -73,7 +73,9 @@ class SummaryScreen extends StatelessWidget {
                         const SizedBox(height: 12),
                         for (final r in rows)
                           _Bar(
-                            label: purposeLabel(r['purpose'] as String),
+                            label: t.find(
+                                    'purpose_${r['purpose'] as String}') ??
+                                purposeLabel(r['purpose'] as String),
                             icon: purposeIcon(r['purpose'] as String),
                             amount: (r['total'] as num).toDouble(),
                             max: max,

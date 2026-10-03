@@ -68,11 +68,36 @@ object CaptureChannel {
             }
     }
 
-    /** Reads queued items and clears the file — each item drains once. */
+    /**
+     * Reads queued items and clears the queue — each item drains once.
+     *
+     * The swap is atomic: the queue file is RENAMED aside first and the
+     * copy is parsed. The writers (SMS receiver / notification
+     * listener, other threads) append to the original path; the old
+     * read-then-truncate version wiped any alert that was appended
+     * between the read and the truncate without ever returning it —
+     * a bank alert that demonstrably arrived simply never appeared.
+     * After the rename, appends land in a fresh file for the next drain.
+     */
     private fun drain(context: Context, name: String): List<Map<String, Any?>> {
-        val file = File(context.filesDir, name)
-        if (!file.exists()) return emptyList()
         val out = mutableListOf<Map<String, Any?>>()
+        val swapped = File(context.filesDir, "$name.draining")
+        // A leftover swap file means a previous drain died between the
+        // rename and the parse: its items were never returned, so
+        // recover them first rather than dropping them.
+        if (swapped.exists()) {
+            parseInto(swapped, out)
+            swapped.delete()
+        }
+        val file = File(context.filesDir, name)
+        if (!file.exists()) return out
+        if (!file.renameTo(swapped)) return out
+        parseInto(swapped, out)
+        swapped.delete()
+        return out
+    }
+
+    private fun parseInto(file: File, out: MutableList<Map<String, Any?>>) {
         for (line in file.readLines()) {
             if (line.isBlank()) continue
             try {
@@ -88,8 +113,6 @@ object CaptureChannel {
                 // Corrupt line: skip it.
             }
         }
-        file.writeText("")
-        return out
     }
 
     private fun isListenerEnabled(context: Context): Boolean {

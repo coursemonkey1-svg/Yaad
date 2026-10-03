@@ -119,13 +119,24 @@ class MoneyText extends StatelessWidget {
         fontWeight: weight,
         color: color,
         fontFeatures: const [FontFeature.tabularFigures()]);
-    if (!animated) return Text(appState.money(amount), style: style);
+    // Scale down instead of clipping: at crore scale ("PKR
+    // 1,01,01,050") the fixed-size text overflowed its card slot at
+    // 360dp and the row silently lost digits.
+    if (!animated) {
+      return FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: AlignmentDirectional.centerStart,
+          child: Text(appState.money(amount), style: style));
+    }
     return TweenAnimationBuilder<double>(
       key: ValueKey(amount),
       tween: Tween(begin: 0, end: amount),
       duration: const Duration(milliseconds: 700),
       curve: Curves.easeOutCubic,
-      builder: (_, v, __) => Text(appState.money(v), style: style),
+      builder: (_, v, __) => FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: AlignmentDirectional.centerStart,
+          child: Text(appState.money(v), style: style)),
     );
   }
 }

@@ -42,6 +42,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
     if (def != appState.settings.defaultAccountId) {
       await appState.update(
           appState.settings.copyWith(defaultAccountId: def));
+      if (!mounted) return;
     }
     setState(() {
       _accounts = accounts;
@@ -67,6 +68,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
     final settings = appState.settings;
     if (settings.defaultAccountId == a.id) return;
     await appState.update(settings.copyWith(defaultAccountId: a.id));
+    if (!mounted) return;
     setState(() {});
   }
 

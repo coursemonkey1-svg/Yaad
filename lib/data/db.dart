@@ -347,8 +347,16 @@ class YaadDb {
       args.add(personId);
     }
     if (accountIds != null && accountIds.isNotEmpty) {
+      // An account filter must match BOTH legs of a transfer: money
+      // moved INTO the filtered account (toAccountId) belongs in its
+      // list exactly like money that left it — txnCountsByAccount and
+      // accountBalances both count both legs, and a list that hid
+      // incoming transfers disagreed with the counts and balances on
+      // the same screen (the build-26 counts bug, in list form).
       where.add(
-          'accountId IN (${List.filled(accountIds.length, '?').join(', ')})');
+          '(accountId IN (${List.filled(accountIds.length, '?').join(', ')})'
+          ' OR toAccountId IN (${List.filled(accountIds.length, '?').join(', ')}))');
+      args.addAll(accountIds);
       args.addAll(accountIds);
     }
     if (fromMs != null) {
@@ -383,12 +391,21 @@ class YaadDb {
   }
 
   /// Duplicate check for imports: same bank reference, or same
-  /// amount + merchant + calendar day.
+  /// amount + merchant + calendar day. The merchant comparison is
+  /// case-insensitive: the same bank event arriving through two
+  /// channels (SMS body vs notification text) parses to the same
+  /// merchant in different cases, and an exact-case match let both
+  /// copies in. Near midnight the two channels' timestamps can also
+  /// land on neighbouring days (SMS arrival vs notification post
+  /// time), so a date within two hours of midnight checks the
+  /// adjacent day too — narrow enough that a genuinely repeated
+  /// daily purchase at the same shop is not swallowed.
   static Future<YaadTransaction?> findDuplicate({
     String? bankReference,
     required double amount,
     required String rawMerchant,
     required DateTime date,
+    TxnKind? kind,
   }) async {
     final d = await db;
     if (bankReference != null && bankReference.isNotEmpty) {
@@ -398,11 +415,36 @@ class YaadDb {
     }
     final dayStart =
         DateTime(date.year, date.month, date.day).millisecondsSinceEpoch;
-    final dayEnd = dayStart + 24 * 3600 * 1000 - 1;
+    var from = dayStart;
+    var to = dayStart + 24 * 3600 * 1000 - 1;
+    final msIntoDay = date.millisecondsSinceEpoch - dayStart;
+    const twoHours = 2 * 3600 * 1000;
+    if (msIntoDay < twoHours) from -= 24 * 3600 * 1000;
+    if (msIntoDay > 24 * 3600 * 1000 - twoHours) to += 24 * 3600 * 1000;
     final rows = await d.query(
       'transactions',
-      where: 'amount = ? AND rawMerchant = ? AND dateTime BETWEEN ? AND ?',
-      whereArgs: [amount, rawMerchant, dayStart, dayEnd],
+      where: 'amount = ? AND LOWER(rawMerchant) = LOWER(?) '
+          'AND dateTime BETWEEN ? AND ?'
+          // Kind-blindness dropped real money: a spend and a receive
+          // of the same amount at the same shop on the same day (a
+          // purchase and its refund) consumed each other. When the
+          // caller knows the kind, only same-kind rows can match.
+          '${kind != null ? ' AND kind = ?' : ''}'
+          // When the incoming row HAS a bank reference that matched
+          // nothing above, a stored row carrying a DIFFERENT
+          // reference is provably a different bank event — only a
+          // ref-less stored row can be this event's other-channel
+          // copy. Without this, a genuinely new transaction that
+          // merely shares amount+merchant+day with an older,
+          // differently-referenced one was silently dropped.
+          '${bankReference != null && bankReference.isNotEmpty ? " AND (bankReference IS NULL OR bankReference = '')" : ''}',
+      whereArgs: [
+        amount,
+        rawMerchant,
+        from,
+        to,
+        if (kind != null) kind.name,
+      ],
       limit: 1,
     );
     return rows.isEmpty ? null : YaadTransaction.fromMap(rows.first);
@@ -666,10 +708,13 @@ class YaadDb {
   }
 
   /// Deletes a lending record and everything hanging off it: its
-  /// repayments and the transactions those repayments created (via
-  /// Repayment.transactionId). The lend/borrow entry itself has no
-  /// transaction in the current model — the Lend/Borrow screens write
-  /// only the record — so nothing else needs cleanup.
+  /// repayments and the transactions those repayments created. The
+  /// link is followed BOTH ways: Repayment.transactionId (set by
+  /// newer writers) and YaadTransaction.linkedLendingId (the only
+  /// link the Repay screen and settle-up actually wrote for a long
+  /// time — a cascade that read only the first left the "Paid back"
+  /// transactions behind as phantom money that still moved balances
+  /// and pointed at a lending record that no longer existed).
   static Future<void> deleteLending(String id) async {
     final d = await db;
     await d.transaction((txn) async {
@@ -682,6 +727,8 @@ class YaadDb {
               where: 'id = ?', whereArgs: [tid]);
         }
       }
+      await txn.delete('transactions',
+          where: 'linkedLendingId = ?', whereArgs: [id]);
       await txn.delete('repayments',
           where: 'lendingId = ?', whereArgs: [id]);
       await txn.delete('lending', where: 'id = ?', whereArgs: [id]);
@@ -832,6 +879,17 @@ class YaadDb {
     return rows.map(Account.fromMap).toList();
   }
 
+  /// Inserts any missing seeded accounts (Meezan / Savings / Cash)
+  /// at a 0 opening, exactly like first-run seeding (existing rows
+  /// are left untouched). Callers that write rows against the seed
+  /// ids — the demo dataset above all — use this to guarantee the
+  /// accounts exist even on an install that deleted one, so their
+  /// rows never dangle at a nonexistent account.
+  static Future<void> ensureSeedAccounts() async {
+    final d = await db;
+    await _seedAccounts(d);
+  }
+
   static Future<Account?> accountById(String id) async {
     final d = await db;
     final rows = await d.query('accounts',
@@ -887,10 +945,10 @@ class YaadDb {
       for (final a in await accounts()) a.id: a.openingBalance
     };
     final rows = await d.rawQuery('''
-      SELECT accountId, toAccountId, kind, SUM(amount) s
+      SELECT accountId, toAccountId, kind, direction, SUM(amount) s
       FROM transactions
       WHERE status != 'excluded'
-      GROUP BY accountId, toAccountId, kind''');
+      GROUP BY accountId, toAccountId, kind, direction''');
     bool isIn(String kind) =>
         kind == 'receive' || kind == 'borrowIn' || kind == 'repayIn';
     for (final r in rows) {
@@ -899,11 +957,23 @@ class YaadDb {
       final from = r['accountId'] as String?;
       final to = r['toAccountId'] as String?;
       if (kind == 'transfer') {
-        if (from != null && balances.containsKey(from)) {
-          balances[from] = balances[from]! - amt;
-        }
-        if (to != null && balances.containsKey(to)) {
-          balances[to] = balances[to]! + amt;
+        if (to != null) {
+          if (from != null && balances.containsKey(from)) {
+            balances[from] = balances[from]! - amt;
+          }
+          if (balances.containsKey(to)) {
+            balances[to] = balances[to]! + amt;
+          }
+        } else if (from != null && balances.containsKey(from)) {
+          // A one-legged transfer: one half of a statement-import
+          // pair the user marked as a transfer (commitRows writes
+          // the two legs as separate rows with no destination).
+          // Its direction is the sign — the incoming leg adds, the
+          // outgoing leg subtracts — so a marked pair nets to zero
+          // instead of BOTH legs subtracting (which silently shrank
+          // the account and the total by twice the amount).
+          final incoming = (r['direction'] as String?) == 'incoming';
+          balances[from] = balances[from]! + (incoming ? amt : -amt);
         }
       } else if (from != null && balances.containsKey(from)) {
         balances[from] = balances[from]! + (isIn(kind) ? amt : -amt);
@@ -947,7 +1017,28 @@ class YaadDb {
   /// cannot be deleted — callers check [accounts] first.
   static Future<void> deleteAccount(String id,
       {required String reassignTo}) async {
+    // Reassigning an account's rows to ITSELF would turn every
+    // transfer leg pointing at it into a self-transfer and strand
+    // its opening balance on a row that is then deleted. Callers
+    // pass a surviving account; refuse anything else loudly instead
+    // of corrupting quietly.
+    if (reassignTo == id) {
+      throw ArgumentError('deleteAccount: reassignTo must differ from id');
+    }
     final d = await db;
+    // The survivor must actually exist, and there must BE one: the
+    // last account cannot be deleted at all (its rows would be
+    // reassigned into the void and the opening carried to nobody).
+    // The screen enforces both too, but the data layer is where the
+    // invariant has to hold for every caller.
+    final all = await d.query('accounts', columns: ['id']);
+    if (all.length <= 1) {
+      throw StateError('deleteAccount: cannot delete the last account');
+    }
+    if (!all.any((r) => r['id'] == reassignTo)) {
+      throw ArgumentError(
+          'deleteAccount: reassign target does not exist');
+    }
     await d.transaction((txn) async {
       // The opening balance is the user's money too: it follows the
       // transactions to the surviving account instead of vanishing
@@ -982,15 +1073,21 @@ class YaadDb {
   /// from-leg was counted, and a savings account that had only ever
   /// RECEIVED transfers showed "0 transactions"). Every other row
   /// counts once, for its own account. A NULL accountId keeps the
-  /// legacy '' key.
+  /// legacy '' key. Two consistency rules the from/to legs must
+  /// share with everything else on the screen: an excluded row counts
+  /// NOWHERE (every aggregate and list ignores them; the count used
+  /// to include them, disagreeing with both), and a self-transfer
+  /// (to == from — legacy data can hold them) counts ONCE, not twice.
   static Future<Map<String, int>> txnCountsByAccount() async {
     final d = await db;
     final rows = await d.rawQuery('''
       SELECT leg, COUNT(*) n FROM (
         SELECT COALESCE(accountId, '') leg FROM transactions
+          WHERE status != 'excluded'
         UNION ALL
         SELECT toAccountId leg FROM transactions
-          WHERE toAccountId IS NOT NULL
+          WHERE toAccountId IS NOT NULL AND toAccountId != accountId
+            AND status != 'excluded'
       ) GROUP BY leg''');
     return {
       for (final r in rows)

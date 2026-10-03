@@ -12,7 +12,6 @@ import '../models/transaction.dart';
 import '../screens/transaction_view.dart';
 import 'capture_inbox.dart';
 import 'capture_payload.dart';
-import 'pro.dart';
 
 /// One auto-captured transaction handed off from the drain:
 /// the recorded txn plus whether it needs a human eye.
@@ -25,12 +24,25 @@ class CaptureNotify {
   static final _plugin = FlutterLocalNotificationsPlugin();
   static const _channelId = 'yaad_capture';
   static const _promptedKey = 'capture_notif_prompted_v1';
+  static const _pendingTapKey = 'capture_pending_tap_v1';
   static String? _pendingPayload;
+
+  /// Whether the app-lock Gate is REALLY showing the lock screen
+  /// right now. Maintained by the Gate (lock transition → true,
+  /// successful auth → false). A notification tap must be stashed
+  /// only while this is true: testing the app-lock SETTING instead
+  /// stashed every tap that arrived while the app sat open and
+  /// unlocked, and the tap then did nothing until some future
+  /// lock→unlock cycle — the notification looked dead.
+  static final ValueNotifier<bool> gateLocked = ValueNotifier<bool>(false);
 
   /// A transaction tap that arrived while the app lock was on. It must
   /// never open above the lock screen (that would bypass the lock), but
   /// dropping it silently loses the tap — so it is stashed here and
   /// opened by [openPendingAfterUnlock] once Gate reports a real unlock.
+  /// Persisted (see [_pendingTapKey]), not just held in this field:
+  /// the process can die while the phone sits locked, and a memory-only
+  /// stash died with it.
   static String? _pendingLockedTxnId;
 
   /// Call once from main() before runApp.
@@ -78,9 +90,16 @@ class CaptureNotify {
     // App lock is a real lock: never auto-open a transaction above it.
     // Stash the tap instead — Gate opens it after a successful unlock,
     // so the tap is honoured, just only once the user is really in.
-    final s = appState.settings;
-    if (s.appLock && ProService.canUseAppLock(s)) {
+    // The test is the Gate's ACTUAL state, not the lock setting: with
+    // the app open and unlocked, a tap opens immediately.
+    if (gateLocked.value) {
       _pendingLockedTxnId = txnId;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_pendingTapKey, txnId);
+      } catch (_) {
+        // Memory stash still holds it for this process.
+      }
       return;
     }
     await _openTxn(txnId);
@@ -91,9 +110,16 @@ class CaptureNotify {
   /// No-op when nothing is stashed. Bypasses the lock check on purpose —
   /// the caller (Gate) has just authenticated the user.
   static Future<void> openPendingAfterUnlock() async {
-    final id = _pendingLockedTxnId;
-    if (id == null) return;
+    var id = _pendingLockedTxnId;
     _pendingLockedTxnId = null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      id ??= prefs.getString(_pendingTapKey);
+      await prefs.remove(_pendingTapKey);
+    } catch (_) {
+      // Fall through with whatever the memory stash held.
+    }
+    if (id == null) return;
     await _openTxn(id);
   }
 
@@ -118,14 +144,28 @@ class CaptureNotify {
         amount: c.txn.amount,
         time: c.txn.dateTime,
         needsReview: c.needsReview,
+        isOut: c.txn.direction == TxnDirection.out,
       );
     }
     if (promptContext != null) {
       await maybePromptPermission(promptContext);
     }
-    if (!await Permission.notification.isGranted) return;
+    if (!await _notifGranted()) return;
     for (final c in txns) {
       await _post(c.txn, c.needsReview);
+    }
+  }
+
+  /// The notification-permission check, exception-proof: where the
+  /// plugin channel is unavailable (tests, a stripped build) the
+  /// check itself throws MissingPluginException — that must read as
+  /// "not granted", never escape into the drain chain and take the
+  /// whole capture pass down with it.
+  static Future<bool> _notifGranted() async {
+    try {
+      return await Permission.notification.isGranted;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -135,14 +175,21 @@ class CaptureNotify {
   static Future<void> maybePromptPermission(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(_promptedKey) == true) return;
-    await prefs.setBool(_promptedKey, true);
-    if (await Permission.notification.isGranted) return;
+    if (await _notifGranted()) return;
     final s = Strings(appState.settings.language);
     final done = Completer<void>();
     // Post-frame: drains can fire from initState's async gap.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         if (!context.mounted) return;
+        // The "asked once" flag is spent only now that the dialog is
+        // really about to render. It used to be persisted BEFORE this
+        // frame callback ran: a first capture landing around a
+        // lock/backgrounding disposed the caller's context, the
+        // dialog was skipped — and the flag was already spent, so
+        // the rationale never appeared, ever, and Yaad's capture
+        // notifications silently never arrived.
+        await prefs.setBool(_promptedKey, true);
         final want = await showDialog<bool>(
           context: context,
           builder: (_) => AlertDialog(
@@ -160,8 +207,15 @@ class CaptureNotify {
           ),
         );
         if (want != true || !context.mounted) return;
-        final status = await Permission.notification.request();
-        if (!context.mounted) return;
+        // The request can throw where the plugin is unavailable —
+        // that is a quiet "no", not a crash out of a frame callback.
+        PermissionStatus? status;
+        try {
+          status = await Permission.notification.request();
+        } catch (_) {
+          status = null;
+        }
+        if (status == null || !context.mounted) return;
         if (status.isPermanentlyDenied) {
           await showDialog(
             context: context,

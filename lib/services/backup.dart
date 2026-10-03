@@ -16,6 +16,7 @@ import '../models/person.dart';
 import '../models/lending.dart';
 import '../models/alias.dart';
 import 'app_state.dart';
+import 'demo_data.dart';
 
 /// Backup & export. Everything is a file the user owns —
 /// no account, no cloud upload. Free forever.
@@ -50,6 +51,13 @@ class BackupService {
       if (raw != null) {
         data['settings'] = Map<String, Object?>.from(jsonDecode(raw));
       }
+      // The demo-openings snapshot rides along too: demo removal
+      // restores the user's own openings FROM it, and a backup taken
+      // while demo data was on would otherwise strand the demo
+      // openings on the new phone forever (phantom money with zero
+      // transactions behind it).
+      final demoSnap = await DemoData.snapshotRaw();
+      if (demoSnap != null) data['demoOpenings'] = demoSnap;
     } catch (_) {
       // A backup without settings is still a backup.
     }
@@ -60,6 +68,24 @@ class BackupService {
     final path =
         p.join(dir.path, 'yaad-backup-${DateTime.now().millisecondsSinceEpoch}.json');
     await File(path).writeAsString(jsonEncode(data));
+    // Retention: every backup is a FULL financial history file.
+    // Keeping every one ever made is storage and privacy debt —
+    // only the newest survives (older ones were already shared by
+    // the user wherever they wanted them). Sync listing on purpose:
+    // this runs inside Settings handlers, and an awaited directory
+    // stream can stall a UI flow that is waiting on it.
+    try {
+      for (final f in dir.listSync()) {
+        if (f is File &&
+            f.path != path &&
+            p.basename(f.path).startsWith('yaad-backup-') &&
+            f.path.endsWith('.json')) {
+          await f.delete();
+        }
+      }
+    } catch (_) {
+      // Retention is best-effort; the backup itself succeeded.
+    }
     return path;
   }
 
@@ -85,8 +111,13 @@ class BackupService {
       toMs = DateTime(to.year, to.month, to.day, 23, 59, 59, 999)
           .millisecondsSinceEpoch;
     }
-    final txns =
+    final all =
         await YaadDb.txns(limit: 100000, fromMs: fromMs, toMs: toMs);
+    // 'excluded' rows never count anywhere in the app (every sum and
+    // balance ignores them) — the CSV must not quietly re-include
+    // money the user excluded, e.g. when sharing it with an
+    // accountant.
+    final txns = all.where((t) => t.status != TxnStatus.excluded).toList();
 
     // Friendly merchant names the user has taught the app.
     final db = await YaadDb.db;
@@ -149,19 +180,51 @@ class BackupService {
           skipped++;
           continue;
         }
-        await db.insert(table, conv(m));
-        added++;
+        // One bad row must never abort the whole restore (it did:
+        // an alias whose rawName already existed on this phone —
+        // under a different random id — hit the rawName UNIQUE
+        // constraint and the exception killed every table restored
+        // after aliases: accounts, transactions, Udhaar, all gone).
+        try {
+          await db.insert(table, conv(m));
+          added++;
+        } catch (_) {
+          skipped++;
+        }
       }
     }
 
     await restore('people', (m) => Person.fromMap(m).toMap());
-    await restore('aliases', (m) => MerchantAlias.fromMap(m).toMap());
-    // Accounts match by id. User-added accounts follow the normal
-    // skip-if-present rule — but the SEEDED accounts (Meezan /
-    // Savings / Cash) exist on every install, so skipping them would
-    // silently lose a seed's rename and its opening balance on every
-    // fresh-install restore. Seeds are structural with stable ids:
-    // update them in place from the backup instead.
+    // Aliases: the same rawName taught on two devices has two
+    // different ids, so the by-id check above is not enough — match
+    // by rawName as well (upsertAlias semantics) or the insert dies
+    // on the UNIQUE constraint.
+    final aliasRows = (data['aliases'] as List?) ?? [];
+    for (final r in aliasRows) {
+      final m = Map<String, Object?>.from(r as Map);
+      final alias = MerchantAlias.fromMap(m);
+      final byId = await db.query('aliases',
+          where: 'id = ?', whereArgs: [alias.id], limit: 1);
+      final byName = await db.query('aliases',
+          where: 'rawName = ?', whereArgs: [alias.rawName], limit: 1);
+      if (byId.isNotEmpty || byName.isNotEmpty) {
+        skipped++;
+        continue;
+      }
+      try {
+        await db.insert('aliases', alias.toMap());
+        added++;
+      } catch (_) {
+        skipped++;
+      }
+    }
+    // Accounts match by id. The SEEDED accounts (Meezan / Savings /
+    // Cash) exist on every install, so skipping them would silently
+    // lose a seed's rename and its opening balance on every
+    // fresh-install restore — they are updated in place instead.
+    // Existing CUSTOM accounts get the same treatment: re-importing
+    // a newer backup onto the same phone must not silently keep the
+    // old name/opening for them either.
     final accountRows = (data['accounts'] as List?) ?? [];
     for (final r in accountRows) {
       final m = Map<String, Object?>.from(r as Map);
@@ -171,9 +234,7 @@ class BackupService {
       if (existing.isEmpty) {
         await db.insert('accounts', acc.toMap());
         added++;
-      } else if (acc.id == Account.seedMeezan ||
-          acc.id == Account.seedSavings ||
-          acc.id == Account.seedCash) {
+      } else {
         await db.update(
             'accounts',
             {
@@ -183,8 +244,6 @@ class BackupService {
             },
             where: 'id = ?',
             whereArgs: [acc.id]);
-      } else {
-        skipped++;
       }
     }
     // Pre-accounts backups (v1.3 and older) have no accountId on their
@@ -194,6 +253,16 @@ class BackupService {
     await restore('transactions', (m) {
       final map = YaadTransaction.fromMap(m).toMap();
       map['accountId'] ??= defaultAccountId;
+      // Attachments travel as paths, not bytes: on a different phone
+      // those absolute paths point at nothing. Drop a path whose file
+      // is not here, so the entry honestly shows no recording/receipt
+      // instead of a dead player and a missing-image gap.
+      for (final key in ['audioPath', 'receiptPath']) {
+        final v = map[key] as String?;
+        if (v != null && v.isNotEmpty && !File(v).existsSync()) {
+          map[key] = null;
+        }
+      }
       return map;
     });
     await restore('lending', (m) => LendingRecord.fromMap(m).toMap());
@@ -207,13 +276,61 @@ class BackupService {
     await YaadDb.refreshCustomPurposeRegistry();
     // Settings (when the backup carries them): write them back to
     // SharedPreferences; the caller reloads AppState afterwards.
+    // The transient opt-in flow flags are NOT preferences — a backup
+    // captured mid-trip to system settings must not resurrect a
+    // half-finished opt-in on this phone (the completion pass could
+    // turn capture on here without the user ever flipping it here).
     final settingsRaw = data['settings'];
     if (settingsRaw is Map) {
+      final restored = AppSettings.fromMap(
+              Map<String, Object?>.from(settingsRaw))
+          .copyWith(
+              notifOptInPending: false,
+              smsOptInPending: false,
+              notifOptInMissed: false,
+              smsOptInMissed: false);
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(AppState.prefsKey,
-          jsonEncode(Map<String, Object?>.from(settingsRaw)));
+      await prefs.setString(AppState.prefsKey, jsonEncode(restored.toMap()));
+    }
+    // The demo-openings snapshot, when the backup carries one, so
+    // "Remove demo data" on THIS phone can restore the user's own
+    // openings exactly as it would have on the source phone.
+    final demoSnap = data['demoOpenings'];
+    if (demoSnap is String) {
+      await DemoData.restoreSnapshotRaw(demoSnap);
     }
     return ImportSummary(added: added, skipped: skipped);
+  }
+
+  /// Deletes the app-owned files a factory wipe must not leave
+  /// behind: every voice-note recording, every saved receipt image,
+  /// and every exported backup/CSV (each a complete financial
+  /// history). The database wipe alone left all of these on disk —
+  /// "deleted" data that was not, in fact, deleted.
+  static Future<void> deleteWipeLeftovers() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      for (final sub in ['voice_notes', 'receipts']) {
+        final d = Directory(p.join(dir.path, sub));
+        if (await d.exists()) await d.delete(recursive: true);
+      }
+      // Sync listing on purpose: the wipe handler awaits this before
+      // confirming "all data deleted" to the user, and an awaited
+      // directory STREAM can stall that confirmation indefinitely
+      // (its events ride the platform event loop, which a locked or
+      // backgrounding phone may not service promptly). The app
+      // documents dir holds a handful of files — one sync pass is
+      // instant and deterministic.
+      for (final f in dir.listSync()) {
+        if (f is File &&
+            (p.basename(f.path).startsWith('yaad-backup-') ||
+                p.basename(f.path).startsWith('yaad-transactions-'))) {
+          await f.delete();
+        }
+      }
+    } catch (_) {
+      // Best effort: the database/settings wipe already happened.
+    }
   }
 
   /// The default account id from settings. Falls back to the Meezan

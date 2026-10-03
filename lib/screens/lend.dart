@@ -6,6 +6,7 @@ import '../l10n/strings.dart';
 import '../main.dart';
 import '../models/lending.dart';
 import '../models/person.dart';
+import '../services/app_state.dart';
 import '../theme.dart';
 
 /// "I lent money" — one direction only, no toggles (§5).
@@ -77,7 +78,7 @@ class _LendScreenState extends State<LendScreen> {
       firstDate: DateTime(2000),
       lastDate: DateTime.now(),
     );
-    if (picked != null) setState(() => _date = picked);
+    if (picked != null && mounted) setState(() => _date = picked);
   }
 
   Future<void> _save() async {
@@ -85,21 +86,34 @@ class _LendScreenState extends State<LendScreen> {
     final amount =
         double.tryParse(_amountCtrl.text.replaceAll(',', '')) ?? 0;
     final name = _personCtrl.text.trim();
-    if (amount <= 0 || name.isEmpty) {
+    if (!isSaneAmount(amount) || name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(Strings(appState.settings.language).get('whoAndHowMuch'))));
       return;
     }
     setState(() => _saving = true);
-    final person = _selectedPerson ?? await YaadDb.findOrCreatePerson(name);
-    await YaadDb.insertLending(LendingRecord(
-      personId: person.id,
-      originalAmount: amount,
-      currency: appState.settings.currency,
-      date: _date,
-      reason: _reasonCtrl.text.trim(),
-      isOwedToMe: true,
-    ));
+    try {
+      final person = _selectedPerson ?? await YaadDb.findOrCreatePerson(name);
+      await YaadDb.insertLending(LendingRecord(
+        personId: person.id,
+        originalAmount: amount,
+        currency: appState.settings.currency,
+        date: _date,
+        reason: _reasonCtrl.text.trim(),
+        isOwedToMe: true,
+      ));
+    } catch (_) {
+      // A failed write must unwedge the screen: the old code let the
+      // exception escape with _saving stuck true — Save dead on a
+      // spinner until the user force-closed the screen.
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(Strings(appState.settings.language)
+                .get('saveFailed'))));
+      }
+      return;
+    }
     appState.refresh();
     if (mounted) Navigator.of(context).pop();
   }

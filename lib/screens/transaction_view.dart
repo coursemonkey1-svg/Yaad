@@ -80,8 +80,9 @@ class _TransactionViewScreenState extends State<TransactionViewScreen> {
         builder: (_) => ConfirmScreen(editing: _txn)));
     if (!mounted) return;
     final fresh = await YaadDb.txnById(_txn.id);
+    if (!mounted) return;
     if (fresh == null) {
-      if (mounted) Navigator.of(context).pop();
+      Navigator.of(context).pop();
       return;
     }
     setState(() => _txn = fresh);
@@ -113,6 +114,30 @@ class _TransactionViewScreenState extends State<TransactionViewScreen> {
       ),
     );
     if (ok != true || !mounted) return;
+    // A "Paid back" row is one half of a pair: deleting only the
+    // transaction left the repayment standing in Udhaar, so the loan
+    // still showed repaid/settled while the money movement was gone
+    // — the two tabs permanently disagreed. Un-record the matching
+    // repayment too (found by its transaction link, or — for rows
+    // written before repayments carried the link — by amount + day
+    // on the same lending record), which recomputes its status.
+    final linkedId = _txn.linkedLendingId;
+    if (linkedId != null &&
+        (_txn.kind == TxnKind.repayIn || _txn.kind == TxnKind.repayOut)) {
+      final reps = await YaadDb.repaymentsFor(linkedId);
+      for (final rep in reps) {
+        final sameDay = rep.date.year == _txn.dateTime.year &&
+            rep.date.month == _txn.dateTime.month &&
+            rep.date.day == _txn.dateTime.day;
+        if (rep.transactionId == _txn.id ||
+            (rep.transactionId == null &&
+                rep.amount == _txn.amount &&
+                sameDay)) {
+          await YaadDb.deleteRepayment(rep.id);
+          break;
+        }
+      }
+    }
     await YaadDb.deleteTxn(_txn.id);
     appState.refresh();
     if (!mounted) return;
@@ -179,6 +204,16 @@ class _TransactionViewScreenState extends State<TransactionViewScreen> {
   Widget build(BuildContext context) {
     final s = Strings(appState.settings.language);
     final kindName = s.get('kind_${_txn.kind.name}');
+    // Lending rows are managed from Udhaar, where the paired record
+    // lives: editing one here can only touch half the pair (the
+    // repayment stays behind), so no Edit is offered for them —
+    // Delete (with its repayment cascade) still is. Transfers and
+    // spend/receive edit normally (Confirm keeps a transfer's kind
+    // locked and intact).
+    final isLendingKind = _txn.kind == TxnKind.lendOut ||
+        _txn.kind == TxnKind.borrowIn ||
+        _txn.kind == TxnKind.repayIn ||
+        _txn.kind == TxnKind.repayOut;
     return Scaffold(
       appBar: AppBar(
         title: Text(kindName),
@@ -189,12 +224,13 @@ class _TransactionViewScreenState extends State<TransactionViewScreen> {
             onPressed: _delete,
             icon: const Icon(Icons.delete_outline),
           ),
-          TextButton.icon(
-            key: const Key('txnEditButton'),
-            onPressed: _openEdit,
-            icon: const Icon(Icons.edit_outlined),
-            label: Text(s.get('edit')),
-          ),
+          if (!isLendingKind)
+            TextButton.icon(
+              key: const Key('txnEditButton'),
+              onPressed: _openEdit,
+              icon: const Icon(Icons.edit_outlined),
+              label: Text(s.get('edit')),
+            ),
         ],
       ),
       body: FutureBuilder<TxnDisplayNames>(

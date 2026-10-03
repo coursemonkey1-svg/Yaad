@@ -34,6 +34,13 @@ class ParsedRow {
   final String? reference;
   final bool isDuplicate;
   bool selected;
+
+  /// Set when the user deliberately checks a duplicate-flagged row:
+  /// commit writes it and SKIPS the duplicate check for it. Without
+  /// this, a true second copy (a second identical chai) could never
+  /// be imported at all — the preview greyed duplicates out with no
+  /// way back in.
+  bool force;
   bool suggestedTransfer;
 
   /// Purpose the statement parser suggested (e.g. Meezan keyword map).
@@ -48,6 +55,7 @@ class ParsedRow {
     this.reference,
     this.isDuplicate = false,
     this.selected = true,
+    this.force = false,
     this.suggestedTransfer = false,
     this.suggestedPurpose,
   });
@@ -92,30 +100,44 @@ class _DupSnapshot {
 
   _DupSnapshot(this._refs, this._amtCounts);
 
-  static String amtKey(double amount, String merchant, DateTime date) =>
+  /// The amount key includes the KIND: a debit and a credit of the
+  /// same amount at the same merchant on the same day (a purchase
+  /// and its refund) are two different events and must never consume
+  /// each other's copies.
+  static String amtKey(
+          double amount, String merchant, DateTime date, TxnKind? kind) =>
       '$amount|${merchant.trim().toLowerCase()}|'
-      '${date.year}-${date.month}-${date.day}';
+      '${date.year}-${date.month}-${date.day}|${kind?.name ?? ''}';
 
   /// Returns true when [row] duplicates something already in the
-  /// database (or an identical reference earlier in this same file),
+  /// database (or an identical row earlier in this same file),
   /// consuming one stored copy. Call in file order.
+  ///
+  /// Matching is EITHER/OR: a row carrying a bank reference is a
+  /// duplicate when its reference was already seen **or** when an
+  /// unconsumed amount-copy remains. The old rule — reference present
+  /// ⇒ reference-only — silently re-imported whole statements whose
+  /// stored copies had lost their references (older app versions and
+  /// some capture paths never recorded one): the fresh row's new
+  /// reference never matched, and the amount check it bypassed was
+  /// the only one that could have caught it.
   bool consume({
     String? reference,
     required double amount,
     required String merchant,
     required DateTime date,
+    TxnKind? kind,
   }) {
-    if (reference != null && reference.isNotEmpty) {
-      // Set.add returns false when the reference was already there:
-      // in the database, or on an earlier row of this file.
-      return !_refs.add(reference);
-    }
-    final key = amtKey(amount, merchant, date);
+    final hasRef = reference != null && reference.isNotEmpty;
+    if (hasRef && _refs.contains(reference)) return true;
+    final key = amtKey(amount, merchant, date, kind);
     final existing = _amtCounts[key] ?? 0;
     if (existing > 0) {
       _amtCounts[key] = existing - 1;
+      if (hasRef) _refs.add(reference);
       return true;
     }
+    if (hasRef) _refs.add(reference);
     return false;
   }
 }
@@ -268,7 +290,8 @@ class StatementImporter {
           reference: r.reference,
           amount: r.amount,
           merchant: r.description,
-          date: r.date);
+          date: r.date,
+          kind: r.kind);
       parsed.add(ParsedRow(
         date: r.date,
         merchant: r.description,
@@ -290,18 +313,28 @@ class StatementImporter {
     );
   }
 
-  /// Loads everything needed for duplicate detection in ONE query
-  /// (the old code ran a DB query per row — 234 queries for a real
-  /// statement — and, worse, matched purely on existence).
+  /// Loads everything needed for duplicate detection (the old code
+  /// ran a DB query per row — 234 queries for a real statement — and,
+  /// worse, matched purely on existence). Paged: a single capped
+  /// query would silently stop seeing the oldest rows past the cap,
+  /// and duplicates among them would import again.
   Future<_DupSnapshot> _loadDupSnapshot() async {
-    final all = await YaadDb.txns(limit: 100000);
     final refs = <String>{};
     final amtCounts = <String, int>{};
-    for (final t in all) {
-      final ref = t.bankReference;
-      if (ref != null && ref.isNotEmpty) refs.add(ref);
-      final key = _DupSnapshot.amtKey(t.amount, t.rawMerchant, t.dateTime);
-      amtCounts[key] = (amtCounts[key] ?? 0) + 1;
+    const pageSize = 5000;
+    var offset = 0;
+    while (true) {
+      final page =
+          await YaadDb.txns(limit: pageSize, offset: offset);
+      for (final t in page) {
+        final ref = t.bankReference;
+        if (ref != null && ref.isNotEmpty) refs.add(ref);
+        final key =
+            _DupSnapshot.amtKey(t.amount, t.rawMerchant, t.dateTime, t.kind);
+        amtCounts[key] = (amtCounts[key] ?? 0) + 1;
+      }
+      if (page.length < pageSize) break;
+      offset += pageSize;
     }
     return _DupSnapshot(refs, amtCounts);
   }
@@ -342,8 +375,20 @@ class StatementImporter {
       'payee'
     ]);
     var amountCol = col(['amount']);
-    var debitCol = col(['debit', 'withdrawal', 'dr']);
-    var creditCol = col(['credit', 'deposit', 'cr']);
+    // 'dr'/'cr' must match a header cell EXACTLY: as substrings they
+    // collide with ordinary words — 'cr' sits inside "desCRiption",
+    // which once made the credit column point at the description
+    // text, zeroed every amount, and silently skipped every row.
+    var debitCol = col(['debit', 'withdrawal']);
+    if (debitCol < 0) {
+      final i = header.indexWhere((h) => h == 'dr');
+      if (i >= 0) debitCol = i;
+    }
+    var creditCol = col(['credit', 'deposit']);
+    if (creditCol < 0) {
+      final i = header.indexWhere((h) => h == 'cr');
+      if (i >= 0) creditCol = i;
+    }
     var refCol = col(['reference', 'ref', 'rrn', 'transaction id']);
 
     // Column-mapping memory: same layout as last time → reuse it.
@@ -355,6 +400,24 @@ class StatementImporter {
       debitCol = remembered['debit'] ?? debitCol;
       creditCol = remembered['credit'] ?? creditCol;
       refCol = remembered['ref'] ?? refCol;
+    }
+
+    // Dr/Cr INDICATOR layouts: one unsigned Amount column plus a
+    // column whose CELLS say "DR"/"CR" (headers like "Dr/Cr",
+    // "D/C", "Type"). Neither the debit nor the credit search lands
+    // on such a header, so it is detected on its own. (Reading it as
+    // a debit/credit pair — the old behaviour when a substring
+    // search happened to land there — parsed the text cells as
+    // numbers (0) and the whole statement imported as zero rows,
+    // silently.) The Amount column carries the magnitude; the
+    // indicator carries the direction.
+    var indicatorCol = col(['dr/cr', 'd/c', 'indicator']);
+    if (indicatorCol < 0) {
+      final i = header.indexWhere((h) =>
+          h == 'type' ||
+          h.contains('txn type') ||
+          h.contains('transaction type'));
+      if (i >= 0) indicatorCol = i;
     }
 
     // "Debit Amount" / "Credit Amount" layouts: the generic 'amount'
@@ -413,7 +476,9 @@ class StatementImporter {
         double amount = 0;
         var isOut = true;
         if (amountCol >= 0) {
-          // Single amount column: sign decides direction.
+          // Single amount column: sign decides direction — unless an
+          // indicator column says otherwise (unsigned amounts with
+          // DR/CR cells; the indicator is the only direction truth).
           final raw = _num(cell(amountCol));
           if (raw < 0) {
             amount = -raw;
@@ -421,6 +486,20 @@ class StatementImporter {
           } else {
             amount = raw;
             isOut = false;
+          }
+          if (indicatorCol >= 0) {
+            final ind = cell(indicatorCol).toLowerCase();
+            if (ind.contains('dr') ||
+                ind.contains('debit') ||
+                ind == 'd' ||
+                ind.contains('out')) {
+              isOut = true;
+            } else if (ind.contains('cr') ||
+                ind.contains('credit') ||
+                ind == 'c' ||
+                ind.contains('in')) {
+              isOut = false;
+            }
           }
         } else {
           // Debit/credit columns carry magnitudes — a "(500.00)" or
@@ -443,7 +522,8 @@ class StatementImporter {
             reference: reference,
             amount: amount,
             merchant: merchant,
-            date: date);
+            date: date,
+            kind: isOut ? TxnKind.spend : TxnKind.receive);
         parsed.add(ParsedRow(
           date: date,
           merchant: merchant,
@@ -497,9 +577,11 @@ class StatementImporter {
   /// mapping so the next identical layout is zero-setup.
   /// [accountId] tags every imported row; when null it falls back to
   /// the default (Meezan) account — imported rows are never account-less.
+  /// [currency] stamps the rows in the user's currency; without it
+  /// they silently carried the model default even on a USD/EUR setup.
   Future<ImportReport> commitRows(
       List<ParsedRow> selected, String mappingSignature,
-      {Map<String, int>? mapping, String? accountId}) async {
+      {Map<String, int>? mapping, String? accountId, String? currency}) async {
     int imported = 0, duplicates = 0, failed = 0;
     final errors = <String>[];
     // Occurrence-aware duplicate check against the database as it is
@@ -507,18 +589,25 @@ class StatementImporter {
     final snapshot = await _loadDupSnapshot();
     for (final row in selected) {
       try {
-        final dup = snapshot.consume(
-          reference: row.reference,
-          amount: row.amount,
-          merchant: row.merchant,
-          date: row.date,
-        );
+        // A row the user deliberately force-included in the preview
+        // skips the check entirely — re-running it here would drop
+        // the very copy they asked to keep.
+        final dup = row.force
+            ? false
+            : snapshot.consume(
+                reference: row.reference,
+                amount: row.amount,
+                merchant: row.merchant,
+                date: row.date,
+                kind: row.kind,
+              );
         if (dup) {
           duplicates++;
           continue;
         }
         await YaadDb.insertTxn(YaadTransaction(
           amount: row.amount,
+          currency: currency ?? 'PKR',
           dateTime: row.date,
           kind: row.kind,
           direction: row.kind == TxnKind.spend

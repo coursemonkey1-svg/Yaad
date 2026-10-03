@@ -259,8 +259,8 @@ class YaadTransaction {
       id: m['id'] as String,
       amount: (m['amount'] as num?)?.toDouble() ?? 0,
       currency: m['currency'] as String? ?? 'PKR',
-      dateTime:
-          DateTime.fromMillisecondsSinceEpoch(m['dateTime'] as int? ?? 0),
+      dateTime: DateTime.fromMillisecondsSinceEpoch(
+          (m['dateTime'] as num?)?.toInt() ?? 0),
       direction: direction,
       kind: kind,
       rawMerchant: m['rawMerchant'] as String? ?? '',
@@ -283,9 +283,11 @@ class YaadTransaction {
       toAccountId: m['toAccountId'] as String?,
       isDemo: ((m['isDemo'] as num?) ?? 0) != 0,
       createdAt: DateTime.fromMillisecondsSinceEpoch(
-          m['createdAt'] as int? ?? DateTime.now().millisecondsSinceEpoch),
+          (m['createdAt'] as num?)?.toInt() ??
+              DateTime.now().millisecondsSinceEpoch),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(
-          m['updatedAt'] as int? ?? DateTime.now().millisecondsSinceEpoch),
+          (m['updatedAt'] as num?)?.toInt() ??
+              DateTime.now().millisecondsSinceEpoch),
     );
   }
 

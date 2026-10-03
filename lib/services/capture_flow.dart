@@ -1,9 +1,43 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 
 import '../l10n/strings.dart';
 import '../main.dart';
 import '../services/ocr.dart';
 import '../screens/confirm.dart';
+
+/// Copies a picked/shared receipt image into the app's own documents
+/// folder and returns the durable path. The picker and the share
+/// sheet hand out CACHE paths the OS may delete at any time — saving
+/// one of those as the transaction's receiptPath meant the receipt
+/// silently vanished days later (the view screen hides the section
+/// when the file is gone). A path already inside the app folder is
+/// returned unchanged; any failure falls back to the original path
+/// (today's behaviour) rather than losing the entry.
+Future<String?> persistReceiptImage(String? path) async {
+  if (path == null) return null;
+  try {
+    final src = File(path);
+    if (!await src.exists()) return path;
+    final docs = await getApplicationDocumentsDirectory();
+    if (path.startsWith(docs.path)) return path;
+    final dir = Directory('${docs.path}/receipts');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    final dot = path.lastIndexOf('.');
+    final ext = dot > 0 && path.length - dot <= 5
+        ? path.substring(dot)
+        : '.jpg';
+    final dest = '${dir.path}/receipt_${const Uuid().v4()}$ext';
+    await src.copy(dest);
+    return dest;
+  } catch (_) {
+    return path;
+  }
+}
 
 /// Runs OCR on an image with visible progress and graceful failure.
 /// Never fails silently (§4): on success opens the confirm screen;
@@ -13,7 +47,17 @@ Future<void> captureImage(BuildContext context, String path) async {
   final navigator = Navigator.of(context);
 
   // Progress indicator while ML Kit reads the image.
-  showDialog(
+  //
+  // The dialog is a route on the root navigator, so it OUTLIVES the
+  // caller's State: the app-lock Gate can dispose the caller mid-OCR
+  // (share → background → re-lock) without touching the route. The
+  // old dismissal — `if (!context.mounted) return; navigator.pop()` —
+  // therefore leaked this non-dismissible dialog forever in exactly
+  // that case (spinner on top, no buttons, app soft-bricked until
+  // killed), and when the caller survived, the blind pop() closed
+  // whatever route happened to be on top, not necessarily this
+  // dialog. Keep the route object and remove THAT route.
+  final progressRoute = DialogRoute<void>(
     context: context,
     barrierDismissible: false,
     builder: (_) => AlertDialog(
@@ -26,6 +70,7 @@ Future<void> captureImage(BuildContext context, String path) async {
       ),
     ),
   );
+  unawaited(navigator.push(progressRoute));
 
   OcrResult? result;
   Object? error;
@@ -38,8 +83,12 @@ Future<void> captureImage(BuildContext context, String path) async {
     ocr.dispose();
   }
 
+  // Dismiss the progress dialog no matter what state the caller is
+  // in — the route is ours and removing it is always safe.
+  if (progressRoute.isActive) {
+    navigator.removeRoute(progressRoute);
+  }
   if (!context.mounted) return;
-  navigator.pop(); // dismiss progress
 
   // Two dead ends, one dialog: the OCR engine failed outright, or it
   // read the photo but found nothing usable in it (blank photo, not a

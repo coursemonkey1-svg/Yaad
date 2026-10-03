@@ -7,6 +7,7 @@ import '../main.dart';
 import '../models/lending.dart';
 import '../models/person.dart';
 import '../models/transaction.dart';
+import '../services/app_state.dart';
 import '../theme.dart';
 import '../widgets/atoms.dart';
 import 'person_detail.dart';
@@ -86,8 +87,14 @@ class _LendingDetailScreenState extends State<LendingDetailScreen> {
   double get _repaid =>
       _repayments.fold(0.0, (a, r) => a + r.amount);
 
-  double get _remaining =>
-      (_record?.originalAmount ?? 0) - _repaid;
+  /// Never negative on screen: legacy rows can hold repayments above
+  /// the (later lowered) original, and "Remaining: −PKR 500" reads as
+  /// a bug, not as information. The status math uses raw figures;
+  /// only the display clamps.
+  double get _remaining {
+    final rem = (_record?.originalAmount ?? 0) - _repaid;
+    return rem < 0 ? 0 : rem;
+  }
 
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
@@ -96,7 +103,7 @@ class _LendingDetailScreenState extends State<LendingDetailScreen> {
       firstDate: DateTime(2000),
       lastDate: DateTime.now(),
     );
-    if (picked != null) setState(() => _date = picked);
+    if (picked != null && mounted) setState(() => _date = picked);
   }
 
   Future<void> _save() async {
@@ -104,9 +111,19 @@ class _LendingDetailScreenState extends State<LendingDetailScreen> {
     final s = Strings(appState.settings.language);
     final amount =
         double.tryParse(_amountCtrl.text.replaceAll(',', '')) ?? 0;
-    if (amount <= 0) {
+    if (!isSaneAmount(amount)) {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(s.get('enterAmount'))));
+      return;
+    }
+    // The original can never drop below what is already repaid:
+    // that state (repaid > lent) is exactly the negative-remaining /
+    // unsettleable record the guards exist to prevent.
+    if (amount < _repaid - 0.005) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(s
+              .get('belowRepaid')
+              .replaceFirst('{amount}', appState.money(_repaid)))));
       return;
     }
     setState(() => _saving = true);
@@ -155,7 +172,7 @@ class _LendingDetailScreenState extends State<LendingDetailScreen> {
         ],
       ),
     );
-    if (ok != true) return;
+    if (ok != true || !mounted) return;
     // Cascades: repayments + their linked transactions go too.
     await YaadDb.deleteLending(widget.lendingId);
     appState.refresh();
@@ -228,7 +245,12 @@ class _LendingDetailScreenState extends State<LendingDetailScreen> {
             onPressed: () => Navigator.of(context)
                 .push(MaterialPageRoute(
                     builder: (_) => RepayScreen(
-                        person: widget.person,
+                        // The record's CURRENT person — after an edit
+                        // moved this entry to someone else, Repay must
+                        // target them, not the person this screen was
+                        // opened with (it could record the repayment
+                        // against the wrong person's loan).
+                        person: _personById(r.personId) ?? widget.person,
                         theyPaidMe: r.isOwedToMe,
                         preselected: r)))
                 .then((_) async {
@@ -243,6 +265,13 @@ class _LendingDetailScreenState extends State<LendingDetailScreen> {
         ],
       ],
     );
+  }
+
+  Person? _personById(String id) {
+    for (final p in _people) {
+      if (p.id == id) return p;
+    }
+    return null;
   }
 
   String _personName(String id) {
@@ -395,7 +424,7 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
       firstDate: DateTime(2000),
       lastDate: DateTime.now(),
     );
-    if (picked != null) setState(() => _date = picked);
+    if (picked != null && mounted) setState(() => _date = picked);
   }
 
   Future<void> _save() async {
@@ -403,9 +432,27 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
     final s = Strings(appState.settings.language);
     final amount =
         double.tryParse(_amountCtrl.text.replaceAll(',', '')) ?? 0;
-    if (amount <= 0) {
+    if (!isSaneAmount(amount)) {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(s.get('enterAmount'))));
+      return;
+    }
+    // Cap at what this repayment may cover: the original minus the
+    // OTHER repayments. Raising one repayment past the total repaid
+    // the screen never checked — the loan went negative-remaining
+    // and could never settle cleanly.
+    final siblings = await YaadDb.repaymentsFor(widget.record.id);
+    final others = siblings
+        .where((r) => r.id != widget.repayment.id)
+        .fold(0.0, (a, r) => a + r.amount);
+    final cap = widget.record.originalAmount - others;
+    if (amount > cap + 0.005) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(s
+                .get('repayTooMuch')
+                .replaceFirst('{amount}', appState.money(cap)))));
+      }
       return;
     }
     setState(() => _saving = true);
@@ -471,7 +518,7 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
         ],
       ),
     );
-    if (ok != true) return;
+    if (ok != true || !mounted) return;
     await _deleteLinkedTxn(widget.repayment);
     // Recomputes the lending status (a settled loan reopens).
     await YaadDb.deleteRepayment(widget.repayment.id);
@@ -519,7 +566,12 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
                   fontSize: 32, fontWeight: FontWeight.bold)),
         ),
         Center(
-          child: Text(s.get('kind_repayIn'),
+          // Direction follows the record, as in the person history:
+          // a repayment on borrowed money is money HE paid back.
+          child: Text(
+              s.get(widget.record.isOwedToMe
+                  ? 'kind_repayIn'
+                  : 'kind_repayOut'),
               style: Theme.of(context).textTheme.bodyMedium),
         ),
         const SizedBox(height: Gap.x2),
