@@ -206,6 +206,13 @@ void main() {
       final hits = calls.where((c) => c.method == 'setNotificationEnabled');
       expect(hits.isNotEmpty, isTrue);
       expect(hits.last.arguments['enabled'], isTrue);
+      // Turning capture on kicks off a queue drain whose sqflite
+      // query stalls under the fake clock (its replies need real
+      // async); let sqflite's 10s transaction watchdog timer fire
+      // before teardown, or the binding's no-pending-timers
+      // invariant fails — same pattern as flow_system_test's shell
+      // test.
+      await tester.pump(const Duration(seconds: 11));
     });
   });
 }
