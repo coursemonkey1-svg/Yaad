@@ -86,3 +86,39 @@ String resolveDefaultAccountId(
   if (accounts.any((a) => a.id == preferredId)) return preferredId;
   return accounts.first.id;
 }
+
+/// [id] unless it is the Savings stash, in which case the first
+/// non-Savings account. Savings is where money is PARKED, not where
+/// everyday money events happen; when Savings is the only account
+/// there is no alternative and it is returned as-is.
+String _orNonSavings(List<Account> accounts, String id) {
+  if (id != Account.seedSavings) return id;
+  for (final a in accounts) {
+    if (a.id != Account.seedSavings) return a.id;
+  }
+  return id;
+}
+
+/// The account an app-booked money event belongs to when the user's
+/// default would be wrong: their default account, unless the default
+/// IS Savings (a state reachable by one accidental tap on the
+/// Accounts row), in which case the first non-Savings account.
+/// Used for udhaar settle-ups and repayments — real money in/out
+/// that must never silently land in the savings stash.
+String defaultMoneyAccountId(List<Account> accounts, String preferredId) =>
+    _orNonSavings(accounts, resolveDefaultAccountId(accounts, preferredId));
+
+/// The account a BANK event belongs to (an auto-captured bank alert,
+/// a statement import): the seeded Meezan account when Meezan is the
+/// user's bank — bank money is Meezan money regardless of the UI
+/// default at the moment the event is processed — otherwise
+/// [defaultMoneyAccountId]. Never Savings by accident: booking bank
+/// spends into the stash corrupts its balance and Home's Left.
+String bankEventAccountId(List<Account> accounts,
+    {required String defaultBank, required String preferredId}) {
+  if (defaultBank == 'meezan' &&
+      accounts.any((a) => a.id == Account.seedMeezan)) {
+    return Account.seedMeezan;
+  }
+  return defaultMoneyAccountId(accounts, preferredId);
+}

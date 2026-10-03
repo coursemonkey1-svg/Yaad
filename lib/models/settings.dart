@@ -28,6 +28,15 @@ class AppSettings {
   // grant notification access; resume/unlock passes complete the opt-in.
   // Transient flow state, persisted because the trip crosses process /
   // widget-tree death (app-lock Gate teardown). Never a user preference.
+  final bool smsOptInPending; // same pattern for the SMS runtime
+  // permission: the request trip can tear this screen down (Gate
+  // re-lock), and a grant decided while the widget was gone must not
+  // be thrown away — resume/unlock passes complete it.
+  final bool notifOptInMissed; // a notification opt-in completed with
+  // the grant still missing; Settings owes the user the explanation
+  // nudge even when the Settings state that started the trip was
+  // disposed by the Gate before the user returned.
+  final bool smsOptInMissed; // same, for the SMS permission trip.
 
   /// Valid values for [activityView].
   static const String viewDetailed = 'detailed';
@@ -81,6 +90,9 @@ class AppSettings {
     this.defaultAccountId = 'meezan',
     this.showSavings = true,
     this.notifOptInPending = false,
+    this.smsOptInPending = false,
+    this.notifOptInMissed = false,
+    this.smsOptInMissed = false,
   });
 
   AppSettings copyWith({
@@ -108,6 +120,9 @@ class AppSettings {
     String? defaultAccountId,
     bool? showSavings,
     bool? notifOptInPending,
+    bool? smsOptInPending,
+    bool? notifOptInMissed,
+    bool? smsOptInMissed,
   }) =>
       AppSettings(
         currency: currency ?? this.currency,
@@ -135,6 +150,9 @@ class AppSettings {
         defaultAccountId: defaultAccountId ?? this.defaultAccountId,
         showSavings: showSavings ?? this.showSavings,
         notifOptInPending: notifOptInPending ?? this.notifOptInPending,
+        smsOptInPending: smsOptInPending ?? this.smsOptInPending,
+        notifOptInMissed: notifOptInMissed ?? this.notifOptInMissed,
+        smsOptInMissed: smsOptInMissed ?? this.smsOptInMissed,
       );
 
   Map<String, Object?> toMap() => {
@@ -162,13 +180,22 @@ class AppSettings {
         'defaultAccountId': defaultAccountId,
         'showSavings': showSavings,
         'notifOptInPending': notifOptInPending,
+        'smsOptInPending': smsOptInPending,
+        'notifOptInMissed': notifOptInMissed,
+        'smsOptInMissed': smsOptInMissed,
       };
 
   factory AppSettings.fromMap(Map<String, Object?> m) {
     final view = m['activityView'] as String? ?? viewDetailed;
     final periodRaw = m['period'] as String? ?? periodThisMonth;
+    // A backup (or a corrupt prefs value) can carry any string as
+    // "currency"; the UI only ever writes ISO codes. Anything else
+    // falls back to the default instead of rendering nonsense in
+    // every amount in the app.
+    final currencyRaw = m['currency'] as String? ?? 'PKR';
     return AppSettings(
-        currency: m['currency'] as String? ?? 'PKR',
+        currency:
+            RegExp(r'^[A-Z]{3}$').hasMatch(currencyRaw) ? currencyRaw : 'PKR',
         timezone: m['timezone'] as String? ?? 'Asia/Karachi',
         language: m['language'] as String? ?? 'en',
         theme: m['theme'] as String? ?? 'system',
@@ -194,6 +221,9 @@ class AppSettings {
         showSavings: m['showSavings'] as bool? ?? true,
         // Absent in settings/backups written before this field existed.
         notifOptInPending: m['notifOptInPending'] as bool? ?? false,
+        smsOptInPending: m['smsOptInPending'] as bool? ?? false,
+        notifOptInMissed: m['notifOptInMissed'] as bool? ?? false,
+        smsOptInMissed: m['smsOptInMissed'] as bool? ?? false,
       );
   }
 }
