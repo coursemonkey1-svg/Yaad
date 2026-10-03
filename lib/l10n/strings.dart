@@ -33,6 +33,8 @@ class Strings {
     'move': 'Move',
     'savingsEmpty':
         'Nothing parked yet — move money aside here for later.',
+    'savingsNeedsAnotherAccount':
+        'Add another account to move money in and out of Savings.',
     'needsReview': 'Needs review',
     'needsYourEye': 'Needs your eye',
     'needsYourEyeSub': 'need a quick check — tap to fix',
@@ -610,6 +612,8 @@ class Strings {
     'move': 'منتقل کریں',
     'savingsEmpty':
         'ابھی کچھ نہیں رکھا — بعد کے لیے یہاں پیسے الگ رکھیں۔',
+    'savingsNeedsAnotherAccount':
+        'بچت میں رقم ڈالنے یا نکالنے کے لیے ایک اور اکاؤنٹ شامل کریں۔',
     'needsReview': 'جانچ باقی',
     'needsYourEye': 'آپ کی توجہ چاہیے',
     'needsYourEyeSub': 'کو جلدی دیکھ لیں — ٹھیک کرنے کے لیے دبائیں',

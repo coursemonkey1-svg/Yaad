@@ -238,6 +238,24 @@ void main() {
     expect(orphaned.first['c'], 0);
   });
 
+  test('deleting an account carries its opening balance to the target',
+      () async {
+    final openingBefore =
+        (await YaadDb.accountById('meezan'))!.openingBalance;
+    addTearDown(() => YaadDb.setOpeningBalance('meezan', openingBefore));
+    final acct =
+        await YaadDb.insertAccount('Opening pot', openingBalance: 7000);
+    final totalBefore = await YaadDb.totalBalance();
+
+    await YaadDb.deleteAccount(acct.id, reassignTo: 'meezan');
+
+    // The money did not vanish with the account: the total is the
+    // same and the target account's opening grew by the deleted one.
+    expect(await YaadDb.totalBalance(), totalBefore);
+    expect((await YaadDb.accountById('meezan'))!.openingBalance,
+        openingBefore + 7000);
+  });
+
   test('resolveDefaultAccountId falls back when the id is gone', () async {
     final accounts = await YaadDb.accounts();
     expect(

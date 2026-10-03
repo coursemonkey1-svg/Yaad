@@ -33,6 +33,19 @@ class CaptureService {
   static Future<void> setNotificationEnabled(bool on) =>
       _ch.invokeMethod('setNotificationEnabled', {'enabled': on});
 
+  /// Deletes the native capture queue files (factory wipe): bank
+  /// alerts queued before a wipe must never be imported as fresh
+  /// entries if capture is turned on again afterwards. Never
+  /// throws — an unavailable channel means there is no native
+  /// queue to clear.
+  static Future<void> clearCaptureQueues() async {
+    try {
+      await _ch.invokeMethod('clearCaptureQueues');
+    } catch (_) {
+      // Channel unavailable (non-Android build, tests).
+    }
+  }
+
   static Future<bool> isNotificationAccessGranted() async {
     try {
       return await _ch.invokeMethod<bool>('isNotificationAccessGranted') ??

@@ -39,6 +39,17 @@ object CaptureChannel {
                         result.success(drain(context, "sms_queue.jsonl"))
                     "drainNotifQueue" ->
                         result.success(drain(context, "notif_queue.jsonl"))
+                    "clearCaptureQueues" -> {
+                        // Factory wipe: alerts queued before the wipe
+                        // must not be imported if capture is ever
+                        // turned on again afterwards.
+                        for (name in listOf(
+                            "sms_queue.jsonl", "notif_queue.jsonl")) {
+                            val f = File(context.filesDir, name)
+                            if (f.exists()) f.delete()
+                        }
+                        result.success(null)
+                    }
                     "isNotificationAccessGranted" ->
                         result.success(isListenerEnabled(context))
                     "openNotificationSettings" -> {
