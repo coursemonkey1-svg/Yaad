@@ -13,6 +13,57 @@ import 'purpose_dialogs.dart';
 /// direction stays single-select (All / Money out / Money in).
 /// Filters combine: direction AND (any selected purpose)
 /// AND (any selected account) AND search text.
+/// "Name the new account" dialog. A StatefulWidget that OWNS its
+/// text controller and disposes it in State.dispose — disposing
+/// from the caller when the dialog future completes races the exit
+/// animation (the field rebuilds once more → "used after disposed"),
+/// and never disposing leaks it.
+class _NewAccountNameDialog extends StatefulWidget {
+  final Strings s;
+  const _NewAccountNameDialog({required this.s});
+
+  @override
+  State<_NewAccountNameDialog> createState() =>
+      _NewAccountNameDialogState();
+}
+
+class _NewAccountNameDialogState extends State<_NewAccountNameDialog> {
+  final _ctrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.s;
+    return AlertDialog(
+      title: Text(s.get('addAccount')),
+      content: TextField(
+        controller: _ctrl,
+        autofocus: true,
+        textCapitalization: TextCapitalization.words,
+        maxLength: 40,
+        decoration: InputDecoration(
+          hintText: s.get('accountNameHint'),
+          border: const OutlineInputBorder(),
+        ),
+        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(s.get('cancel'))),
+        FilledButton(
+            onPressed: () => Navigator.of(context).pop(_ctrl.text.trim()),
+            child: Text(s.get('save'))),
+      ],
+    );
+  }
+}
+
 class FilterSelection {
   final Set<String> purposes;
   final TxnDirection? direction;
@@ -148,31 +199,9 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
   /// throws StateError on a case-insensitive clash, messaged here.
   Future<void> _createAccount() async {
     final s = widget.s;
-    final ctrl = TextEditingController();
     final name = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(s.get('addAccount')),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          textCapitalization: TextCapitalization.words,
-          maxLength: 40,
-          decoration: InputDecoration(
-            hintText: s.get('accountNameHint'),
-            border: const OutlineInputBorder(),
-          ),
-          onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: Text(s.get('cancel'))),
-          FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
-              child: Text(s.get('save'))),
-        ],
-      ),
+      builder: (_) => _NewAccountNameDialog(s: s),
     );
     if (name == null || !mounted) return;
     if (name.isEmpty) {
@@ -204,6 +233,7 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
     final ok = await confirmDeleteCustomPurpose(context, s, cp.label);
     if (!ok || !mounted) return;
     await YaadDb.deleteCustomPurpose(cp.id);
+    if (!mounted) return;
     setState(() {
       _customs.removeWhere((c) => c.id == cp.id);
       _purposes.remove(cp.id);

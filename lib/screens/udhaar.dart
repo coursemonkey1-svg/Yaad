@@ -103,7 +103,11 @@ class _UdhaarScreenState extends State<UdhaarScreen> {
             return RefreshIndicator(
               onRefresh: () async => appState.refresh(),
               child: ListView(
-                padding: const EdgeInsets.all(Gap.x2),
+                // Bottom padding clears the shell's extended FAB —
+                // Home and Activity already pad for it; without it
+                // the last person's row sat hidden under the button.
+                padding:
+                    const EdgeInsets.fromLTRB(Gap.x2, Gap.x2, Gap.x2, 96),
                 children: [
                   // Totals header.
                   Row(

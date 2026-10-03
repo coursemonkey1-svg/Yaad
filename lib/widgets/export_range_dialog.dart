@@ -107,7 +107,7 @@ class _RangeDialogState extends State<_RangeDialog> {
       firstDate: DateTime(2000),
       lastDate: DateTime.now().add(const Duration(days: 1)),
     );
-    if (d == null) return;
+    if (d == null || !mounted) return;
     setState(() {
       _preset = _Preset.custom;
       if (isFrom) {
