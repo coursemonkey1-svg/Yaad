@@ -143,7 +143,7 @@ class YaadDb {
 
   /// Inserts the Meezan / Savings / Cash seeds. INSERT OR IGNORE:
   /// migrations and restores never duplicate them (matched by id).
-  static Future<void> _seedAccounts(Database db) async {
+  static Future<void> _seedAccounts(DatabaseExecutor db) async {
     for (final a in Account.seeds()) {
       await db.insert('accounts', a.toMap(),
           conflictAlgorithm: ConflictAlgorithm.ignore);
@@ -453,9 +453,13 @@ class YaadDb {
   }
 
   /// Net money parked in savings between two moments: transfers INTO
-  /// the savings account minus transfers OUT of it. A single query —
-  /// one transfer row carries both legs (accountId = from,
-  /// toAccountId = to), so in−out is always honest.
+  /// the savings account minus transfers OUT of it. The two legs are
+  /// summed INDEPENDENTLY — one transfer row carries both legs
+  /// (accountId = from, toAccountId = to), and a row whose legs are
+  /// both Savings (a self-transfer, e.g. one recorded while the
+  /// default account was Savings itself) must net to exactly zero,
+  /// never count as new parked money. A single WHEN/WHEN CASE gets
+  /// that wrong: it matches the "in" leg first and invents savings.
   ///
   /// Transfers are kind 'transfer', never 'spend'/'receive', so
   /// [sumSpent]/[sumReceived] stay clean no matter how much moves.
@@ -463,10 +467,9 @@ class YaadDb {
     final d = await db;
     final sid = Account.seedSavings;
     final rows = await d.rawQuery('''
-      SELECT SUM(CASE
-        WHEN toAccountId = ? THEN amount
-        WHEN accountId = ? THEN -amount
-        ELSE 0 END) s
+      SELECT
+        SUM(CASE WHEN toAccountId = ? THEN amount ELSE 0 END) +
+        SUM(CASE WHEN accountId = ? THEN -amount ELSE 0 END) s
       FROM transactions
       WHERE kind = 'transfer' AND status != 'excluded'
         AND (accountId = ? OR toAccountId = ?)
@@ -991,23 +994,30 @@ class YaadDb {
     });
   }
 
-  /// "Delete all my data". Accounts are structural — like settings —
-  /// so they survive: every install has Meezan / Savings / Cash, and
-  /// wiping must never leave transactions pointing at a missing
-  /// account. (There are no transactions left to point anyway.)
+  /// "Delete all my data" — a factory reset of everything the user
+  /// put in, in one transaction. The accounts table goes too:
+  /// opening balances are user data (v1.5), and a wipe that left
+  /// them behind still showed the user's money on the Home Balance
+  /// card after everything else read zero. Exactly the three seed
+  /// accounts are restored (opening balance 0) via the same seeding
+  /// path as DB creation, so the app is never left without accounts.
   static Future<void> wipeAll() async {
     final d = await db;
-    for (final t in [
-      'transactions',
-      'people',
-      'lending',
-      'repayments',
-      'aliases',
-      'custom_purposes',
-      'audit'
-    ]) {
-      await d.delete(t);
-    }
+    await d.transaction((txn) async {
+      for (final t in [
+        'transactions',
+        'people',
+        'lending',
+        'repayments',
+        'aliases',
+        'custom_purposes',
+        'audit',
+        'accounts'
+      ]) {
+        await txn.delete(t);
+      }
+      await _seedAccounts(txn);
+    });
     await refreshCustomPurposeRegistry();
   }
 }

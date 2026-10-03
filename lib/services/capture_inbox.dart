@@ -172,4 +172,15 @@ class CaptureInbox extends ChangeNotifier {
     await _save();
     notifyListeners();
   }
+
+  /// Empties the inbox (factory wipe): the entries point at
+  /// transactions that no longer exist, and the persisted copy must
+  /// go too, not just the in-memory list.
+  Future<void> clear() async {
+    _entries = [];
+    _loaded = true;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(storageKey);
+    notifyListeners();
+  }
 }

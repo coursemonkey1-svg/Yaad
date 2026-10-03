@@ -29,6 +29,15 @@ class DemoData {
   /// the balances look real; the user's own openings must survive).
   static const _kOpeningsKey = 'yaad_demo_opening_balances_v1';
 
+  /// Drops the saved pre-demo opening balances (factory wipe): after
+  /// a wipe there are no "user's own openings" to restore, and a
+  /// stale snapshot would resurrect pre-wipe balances on the next
+  /// demo add/remove cycle.
+  static Future<void> clearOpeningsSnapshot() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kOpeningsKey);
+  }
+
   /// The openings the demo runs with: a believable month-start state.
   static const _demoOpenings = {
     Account.seedMeezan: 120000.0,

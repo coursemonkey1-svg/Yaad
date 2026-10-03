@@ -29,6 +29,24 @@ double monthLeft(
         required double parked}) =>
     received - spent - parked;
 
+/// The account on the OTHER side of a savings move: money parked in
+/// Savings comes from somewhere, and money taken back goes somewhere.
+/// The user's default account is the natural other side — unless the
+/// default IS Savings (it can be: the user picks the default freely),
+/// in which case the first non-Savings account in list order wins.
+/// Returns null when Savings is the only account — there is nowhere
+/// for money to move to or from, and a Savings → Savings "move" must
+/// never be offered, let alone recorded.
+String? savingsCounterpartId(List<Account> accounts, String defaultId) {
+  for (final a in accounts) {
+    if (a.id == defaultId && a.id != Account.seedSavings) return a.id;
+  }
+  for (final a in accounts) {
+    if (a.id != Account.seedSavings) return a.id;
+  }
+  return null;
+}
+
 /// Dashboard: one question per glance (§3).
 /// Spent this month, received, who owes you / you owe, needs-your-eye,
 /// recent activity. Lending never mixes into spending (§2).
@@ -67,7 +85,18 @@ class HomeScreen extends StatelessWidget {
     final savingsAccount = byId(Account.seedSavings);
     final defaultId =
         resolveDefaultAccountId(accounts, appState.settings.defaultAccountId);
-    final defaultAccount = byId(defaultId);
+    // The savings card's other side is NOT blindly the default
+    // account: when the default is Savings itself, both sheet
+    // directions would read Savings → Savings. The counterpart is
+    // the default when it isn't Savings, else the first other
+    // account — and may not exist at all (Savings-only install).
+    final counterpartId = savingsCounterpartId(accounts, defaultId);
+    final counterpart =
+        counterpartId == null ? null : byId(counterpartId);
+    final otherAccounts = [
+      for (final a in accounts)
+        if (a.id != Account.seedSavings) a,
+    ];
     final reviewCount =
         await YaadDb.countByStatus(TxnStatus.needsReview.name);
 
@@ -116,9 +145,10 @@ class HomeScreen extends StatelessWidget {
       recent: recent,
       savingsTotal: savingsTotal,
       hasSavingsAccount: savingsAccount != null,
-      fromId: defaultId,
-      fromName: defaultAccount?.displayName(s) ?? defaultId,
-      toName: savingsAccount?.displayName(s) ?? Account.seedSavings,
+      counterpartId: counterpartId,
+      counterpartName: counterpart?.displayName(s) ?? '',
+      savingsName: savingsAccount?.displayName(s) ?? Account.seedSavings,
+      otherAccounts: otherAccounts,
     );
   }
 
@@ -242,9 +272,10 @@ class HomeScreen extends StatelessWidget {
                   if (d.hasSavingsAccount && appState.settings.showSavings)
                     _SavingsCard(
                       total: d.savingsTotal,
-                      fromId: d.fromId,
-                      fromName: d.fromName,
-                      toName: d.toName,
+                      counterpartId: d.counterpartId,
+                      counterpartName: d.counterpartName,
+                      savingsName: d.savingsName,
+                      otherAccounts: d.otherAccounts,
                     ),
                   if (d.hasSavingsAccount && appState.settings.showSavings)
                     const SizedBox(height: Gap.x1 + 4),
@@ -312,7 +343,9 @@ class _Dash {
   final double owedToMe, iOwe;
   final double savingsTotal;
   final bool hasSavingsAccount;
-  final String fromId, fromName, toName;
+  final String? counterpartId;
+  final String counterpartName, savingsName;
+  final List<Account> otherAccounts;
   final int reviewCount, peopleOwing, peopleOwed;
   final List<YaadTransaction> recent;
   _Dash({
@@ -329,9 +362,10 @@ class _Dash {
     required this.recent,
     required this.savingsTotal,
     required this.hasSavingsAccount,
-    required this.fromId,
-    required this.fromName,
-    required this.toName,
+    required this.counterpartId,
+    required this.counterpartName,
+    required this.savingsName,
+    required this.otherAccounts,
   });
 }
 
@@ -482,26 +516,36 @@ class _MiniCard extends StatelessWidget {
 /// spendable. Hidden entirely when there is no savings account.
 class _SavingsCard extends StatelessWidget {
   final double total;
-  final String fromId;
-  final String fromName;
-  final String toName;
+
+  /// The account on the other side of a move — null when Savings is
+  /// the only account, in which case no move is possible at all.
+  final String? counterpartId;
+  final String counterpartName;
+  final String savingsName;
+
+  /// Every non-Savings account, in list order — the sheet's choices
+  /// for the moving side.
+  final List<Account> otherAccounts;
   const _SavingsCard({
     required this.total,
-    required this.fromId,
-    required this.fromName,
-    required this.toName,
+    required this.counterpartId,
+    required this.counterpartName,
+    required this.savingsName,
+    required this.otherAccounts,
   });
 
   void _openSheet(BuildContext context, {required bool add}) {
+    final otherId = counterpartId;
+    if (otherId == null) return; // buttons are disabled in this state
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (_) => _SavingsSheet(
         add: add,
-        fromId: add ? fromId : Account.seedSavings,
-        fromName: add ? fromName : toName,
-        toId: add ? Account.seedSavings : fromId,
-        toName: add ? toName : fromName,
+        savingsName: savingsName,
+        others: otherAccounts,
+        initialOtherId: otherId,
+        initialOtherName: counterpartName,
       ),
     ).then((_) => appState.refresh());
   }
@@ -510,6 +554,7 @@ class _SavingsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = Strings(appState.settings.language);
     final cs = Theme.of(context).colorScheme;
+    final canMove = counterpartId != null;
     return Container(
       padding: const EdgeInsets.all(Gap.x2),
       decoration: BoxDecoration(
@@ -542,7 +587,8 @@ class _SavingsCard extends StatelessWidget {
             children: [
               Expanded(
                 child: FilledButton.tonal(
-                  onPressed: () => _openSheet(context, add: true),
+                  onPressed:
+                      canMove ? () => _openSheet(context, add: true) : null,
                   // Single-line, always: the label scales down
                   // instead of wrapping to two lines.
                   child: FittedBox(
@@ -556,7 +602,9 @@ class _SavingsCard extends StatelessWidget {
                 const SizedBox(width: Gap.x1),
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () => _openSheet(context, add: false),
+                    onPressed: canMove
+                        ? () => _openSheet(context, add: false)
+                        : null,
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(s.get('takeBack'), maxLines: 1),
@@ -566,6 +614,17 @@ class _SavingsCard extends StatelessWidget {
               ],
             ],
           ),
+          // Savings is the only account: a move needs a second
+          // account to move money to or from. Say so plainly instead
+          // of offering a Savings → Savings move.
+          if (!canMove) ...[
+            const SizedBox(height: 4),
+            Text(s.get('savingsNeedsAnotherAccount'),
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: cs.onSurfaceVariant)),
+          ],
         ],
       ),
     );
@@ -573,20 +632,25 @@ class _SavingsCard extends StatelessWidget {
 }
 
 /// Amount → Move. One sheet: the from → to line is the confirmation,
-/// so the whole move is two taps. Keyboard-safe like the capture
-/// sheet (lifts by viewInsets, scrolls on small screens).
+/// so the whole move is two taps. The Savings side is fixed; the
+/// other side is a chip row (preselected to the card's counterpart),
+/// so the user can move from/to any account — and can never pick
+/// Savings itself. Keyboard-safe like the capture sheet (lifts by
+/// viewInsets, scrolls on small screens).
 class _SavingsSheet extends StatefulWidget {
   final bool add;
-  final String fromId;
-  final String fromName;
-  final String toId;
-  final String toName;
+  final String savingsName;
+
+  /// Every non-Savings account — the choices for the moving side.
+  final List<Account> others;
+  final String initialOtherId;
+  final String initialOtherName;
   const _SavingsSheet({
     required this.add,
-    required this.fromId,
-    required this.fromName,
-    required this.toId,
-    required this.toName,
+    required this.savingsName,
+    required this.others,
+    required this.initialOtherId,
+    required this.initialOtherName,
   });
 
   @override
@@ -597,6 +661,10 @@ class _SavingsSheetState extends State<_SavingsSheet> {
   final _amountCtrl = TextEditingController();
   bool _moving = false;
 
+  /// The moving side's account, chosen by chip. The Savings side is
+  /// always Account.seedSavings, so the two sides can never coincide.
+  late String _otherId = widget.initialOtherId;
+
   @override
   void dispose() {
     _amountCtrl.dispose();
@@ -605,6 +673,23 @@ class _SavingsSheetState extends State<_SavingsSheet> {
 
   double get _amount =>
       double.tryParse(_amountCtrl.text.replaceAll(',', '')) ?? 0;
+
+  String get _fromId =>
+      widget.add ? _otherId : Account.seedSavings;
+  String get _toId =>
+      widget.add ? Account.seedSavings : _otherId;
+
+  String _otherName(Strings s) {
+    for (final a in widget.others) {
+      if (a.id == _otherId) return a.displayName(s);
+    }
+    return widget.initialOtherName;
+  }
+
+  String _fromName(Strings s) =>
+      widget.add ? _otherName(s) : widget.savingsName;
+  String _toName(Strings s) =>
+      widget.add ? widget.savingsName : _otherName(s);
 
   /// One transfer row: from-account → to-account. Kind 'transfer' is
   /// never counted as spending or income, so the month totals stay
@@ -616,6 +701,12 @@ class _SavingsSheetState extends State<_SavingsSheet> {
   Future<void> _move() async {
     // Rapid double-tap guard: one tap, one transfer row.
     if (_moving) return;
+    // Hard guard: a move needs two DIFFERENT accounts. The chip row
+    // only offers non-Savings accounts, so this cannot fire from the
+    // UI — but a self-transfer row must be impossible to write, not
+    // just uninvited (build-26 recorded Savings → Savings rows that
+    // then had to be made harmless in the sums).
+    if (_fromId == _toId) return;
     final amount = _amount;
     if (amount <= 0) return;
     setState(() => _moving = true);
@@ -628,8 +719,8 @@ class _SavingsSheetState extends State<_SavingsSheet> {
       kind: TxnKind.transfer,
       purpose: 'savings',
       source: TxnSource.manual,
-      accountId: widget.fromId,
-      toAccountId: widget.toId,
+      accountId: _fromId,
+      toAccountId: _toId,
     ));
     // Recompute the confirmation over the period Home is actually
     // showing, so the Left in the message matches the hero. When the
@@ -690,9 +781,27 @@ class _SavingsSheetState extends State<_SavingsSheet> {
                     style: Theme.of(context).textTheme.titleLarge,
                     textAlign: TextAlign.center),
                 const SizedBox(height: 4),
-                Text('${widget.fromName} → ${widget.toName}',
+                Text('${_fromName(s)} → ${_toName(s)}',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: cs.onSurfaceVariant)),
+                const SizedBox(height: Gap.x1),
+                // The moving side is the user's choice: one chip per
+                // non-Savings account (the ConfirmScreen picker look).
+                // The from → to line above follows the selection.
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final a in widget.others)
+                      ChoiceChip(
+                        label: Text(a.displayName(s)),
+                        selected: _otherId == a.id,
+                        onSelected: (_) =>
+                            setState(() => _otherId = a.id),
+                      ),
+                  ],
+                ),
                 const SizedBox(height: Gap.x2),
                 TextField(
                   controller: _amountCtrl,

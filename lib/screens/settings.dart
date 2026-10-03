@@ -7,6 +7,7 @@ import '../l10n/strings.dart';
 import '../main.dart';
 import '../models/settings.dart';
 import '../services/backup.dart';
+import '../services/capture_inbox.dart';
 import '../services/demo_data.dart';
 import '../widgets/export_range_dialog.dart';
 import '../services/importer.dart';
@@ -593,10 +594,33 @@ class SettingsScreen extends StatelessWidget {
     );
     if (ok == true) {
       await YaadDb.wipeAll();
+      // Factory reset of everything that lives OUTSIDE the database,
+      // so "deleted" is deleted everywhere:
+      // — settings back to full defaults (which also defaults the
+      //   capture toggles and the default account to the re-seeded
+      //   Meezan);
+      // — the native capture flags off and the queued bank alerts
+      //   deleted, so pre-wipe alerts can't be imported if capture
+      //   is ever turned on again;
+      // — the capture inbox emptied (its entries point at
+      //   transactions that no longer exist);
+      // — the demo openings snapshot dropped, so a later demo
+      //   add/remove cycle can't resurrect pre-wipe balances.
+      await appState.update(const AppSettings());
+      try {
+        await CaptureService.setSmsEnabled(false);
+        await CaptureService.setNotificationEnabled(false);
+      } catch (_) {
+        // Native side unreachable (non-Android build): the settings
+        // reset above already keeps capture off in-app.
+      }
+      await CaptureService.clearCaptureQueues();
+      await CaptureInbox.instance.clear();
+      await DemoData.clearOpeningsSnapshot();
       appState.refresh();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(Strings(appState.settings.language).get('allDataDeleted'))));
+            SnackBar(content: Text(s.get('allDataDeleted'))));
       }
     }
   }

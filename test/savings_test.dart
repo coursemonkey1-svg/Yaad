@@ -272,6 +272,38 @@ void main() {
     expect(await YaadDb.savingsNet(0, now), 6000);
   });
 
+  test('a Savings → Savings self-transfer moves nothing', () async {
+    await _clearTxns();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _move(5000, true, now);
+    expect(await YaadDb.savingsTotal(), 5000);
+    // Regression (build-27): the build-26 savings sheet could record
+    // a move from Savings back into Savings itself (the user's
+    // default account WAS Savings). The old savingsNet CASE matched
+    // the "in" leg first, so each self-transfer INVENTED money —
+    // the Savings card crept up while Left crept down, from nothing.
+    // A self-transfer must net to exactly zero in every figure,
+    // including rows already recorded on a user's phone.
+    await YaadDb.insertTxn(YaadTransaction(
+      amount: 1000,
+      dateTime: DateTime.fromMillisecondsSinceEpoch(now),
+      direction: TxnDirection.ownTransfer,
+      kind: TxnKind.transfer,
+      purpose: 'savings',
+      source: TxnSource.manual,
+      accountId: Account.seedSavings,
+      toAccountId: Account.seedSavings,
+    ));
+    expect(await YaadDb.savingsTotal(), 5000);
+    expect(await YaadDb.savingsNet(0, now), 5000);
+    final n = DateTime.now();
+    final mStart = DateTime(n.year, n.month, 1).millisecondsSinceEpoch;
+    expect(await YaadDb.savingsNet(mStart, now), 5000);
+    // …and ordinary moves still count afterwards.
+    await _move(500, false, now);
+    expect(await YaadDb.savingsTotal(), 4500);
+  });
+
   test('savingsNet respects the month window', () async {
     await _clearTxns();
     final old = DateTime(2026, 1, 5).millisecondsSinceEpoch;
@@ -370,6 +402,7 @@ void main() {
       'takeBack',
       'move',
       'savingsEmpty',
+      'savingsNeedsAnotherAccount',
       'purpose_savings',
     ]) {
       expect(en.get(k), isNot(k));
